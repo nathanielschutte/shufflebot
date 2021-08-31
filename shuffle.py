@@ -1,11 +1,13 @@
 
-# SHUFFLE BOT
+# # # # # # # # # # # #
+# # # SHUFFLE BOT # # #
+# # # # # # # # # # # #
 #
 # author: Nate
-#
-# Server global playlists and track store
-# Personal profile data
-
+# description:
+#   Playback from urls and search queries
+#   Server playlists and tracks
+#   Personal profile data
 
 
 # Commands
@@ -25,19 +27,30 @@ import store, util
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-util.readConfig('config.ini')
+util.readConfig('config.ini', True)
 FFMPEG_EXE = util.getConfig('playback', 'ffmpeg')
 STORAGE_DIR = util.getConfig('storage', 'dir')
 
 BOT_PREFIX = util.getConfig('bot', 'prefix').strip()
 if not BOT_PREFIX:
     print('bot prefix error')
+BOT_ACTIVITY = util.getConfig('bot', 'action')
+if not BOT_ACTIVITY:
+    print('bot action error')
+    BOT_ACTIVITY = 'unknown'
 
 bot = commands.Bot(command_prefix=BOT_PREFIX)
 
 devCommands = []
 devUsers = []
 
+# Events
+@bot.event
+async def on_ready():
+    await bot.change_presence(activity=discord.Game(BOT_ACTIVITY))
+    print(f'{bot.user} is connected')
+
+# Shuffle bot
 class Shuffle(commands.Cog):
     """"""
     def __init__(self, bot):
