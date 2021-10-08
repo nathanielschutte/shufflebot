@@ -1,0 +1,18 @@
+
+1. Finish primary config settings, move config vars to config.py, add fallbacks
+
+2. Finish storage refactor and load into ShuffleBot
+
+3. Connect bot from run.py
+
+4. Handle Exceptions in run.py
+    while tryagain
+        except FormattedError (example in MusicBot)
+        except ImportError
+            pip --upgrade -r requirements.txt
+
+5. Write downloader
+
+6. Connect !play -> downloader -> .mp3 in audiocache
+
+7. Write pip and git in run.py, add checks

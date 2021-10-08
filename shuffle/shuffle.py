@@ -10,23 +10,15 @@
 #   Personal profile data
 
 
-# Commands
-# - play
-# - pause
-# - stop
-# - skip
-# - queue
-
 import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-import store, util
-
-# Config
-load_dotenv()
-TOKEN = os.getenv('DISCORD_TOKEN')
+from .exceptions import ShuffleBotException, FormattedException
+from .store import Storage
+from .config import Config, ConfigFallback
+from .aliases import Aliases, AliasesFallback
 
 util.readConfig('config.ini', True)
 FFMPEG_EXE = util.getConfig('playback', 'ffmpeg')
@@ -40,29 +32,23 @@ if not BOT_ACTIVITY:
     print('bot action error')
     BOT_ACTIVITY = 'unknown'
 
-bot = commands.Bot(command_prefix=BOT_PREFIX)
-
-# Dev
-devCommands = []
-devUsers = []
-
-# Events
-@bot.event
-async def on_ready():
-    await bot.change_presence(activity=discord.Game(BOT_ACTIVITY))
-    print(f'{bot.user} is connected using prefix {BOT_PREFIX} and activity \'{BOT_ACTIVITY}\'')
 
 # Shuffle bot commands
 class Shuffle(commands.Cog):
-    """"""
-    def __init__(self, bot):
+    """Shuffle discord cog for ShuffleBot"""
+    def __init__(self, bot, profiles=None, playlists=None, tracks=None):
+
         self.bot = bot
 
-        self.profiles = store.getCollection('profiles')
-        self.playlists = store.getCollection('playlists')
-        self.tracks = store.getCollection('tracks')
+        self.usingProfiles = profiles != None
+        self.usingPlaylists = playlists != None
+        self.usingTracks = tracks != None
+        self.profiles = profiles
+        self.playlists = playlists
+        self.tracks = tracks
 
-        self.updateProfiles()
+        if self.usingProfiles:
+            self.updateProfiles()
 
     # Server and command management
     # Make sure every player on the server has a profile
@@ -80,20 +66,16 @@ class Shuffle(commands.Cog):
             return 0
     
     # Commands
-    @commands.command(help='Search youtube or paste a URL')
+    @commands.command(help='Search online or paste a URL')
     async def play(self, ctx, arg=None):
         self.helper(arg)
 
-    @commands.command(help='Play a playlist')
-    async def playlist(self, ctx, arg):
-        pass
-
-    @commands.command(help='Play a track')
-    async def track(self, ctx, arg):
-        pass
-
     @commands.command(help='Temporarily stop playback')
     async def pause(self, ctx):
+        pass
+
+    @commands.command(help='Resume playback')
+    async def resume(self, ctx):
         pass
 
     @commands.command(help='Permanantly stop playback')
@@ -133,17 +115,63 @@ class Shuffle(commands.Cog):
 
         await ctx.send(embed=embed)
 
-    @commands.command(help='Create a new playlist or track')
-    async def create(self, ctx, arg, ):
-        type = self.argPlaylistOrTrack()
+    @commands.command(help='Clear the queue')
+    async def clear(self, ctx, arg, ):
+        pass
 
-# Storage
-store.setDir(STORAGE_DIR)
-store.load()
-store.useCollection('profiles')
-store.useCollection('playlists')
-store.useCollection('tracks')
+    # Events
+    @commands.Cog.listener()
+    async def on_ready(self):
+        await self.bot.change_presence(activity=discord.Game(BOT_ACTIVITY))
+        print(f'{self.bot.user} is connected using prefix {BOT_PREFIX} and activity \'{BOT_ACTIVITY}\'')
 
-# Bot
-bot.add_cog(Shuffle(bot))
-bot.run(TOKEN)
+
+class ShuffleBot:
+    """ShuffleBot runner"""
+
+    def __init__(self, config_file=None, aliases_file=None):
+        
+        if config_file is None:
+            config_file = ConfigFallback.config_file
+        if aliases_file is None:
+            aliases_file = AliasesFallback.aliases_file
+
+        self.config = Config(config_file)
+        if self.config.use_aliases:
+            self.aliases = Aliases(aliases_file)
+
+        self.storage = None
+
+        # Dev
+        self.dev_cmds = []
+        self.dev_users = []
+
+        # Storage (needs refactor...)
+        store.setDir(STORAGE_DIR)
+        store.load()
+        store.useCollection('profiles')
+        store.useCollection('playlists')
+        store.useCollection('tracks')
+
+        # Bot creation
+        self.bot = commands.Bot(command_prefix=BOT_PREFIX)
+        self.cogs = [
+            Shuffle(self.bot)
+        ]
+        self.__setup()
+
+
+    def run(self):
+        load_dotenv()
+        token = os.getenv('DISCORD_TOKEN')
+        if token is None:
+            raise ShuffleBotException('token not found in environment variables')
+
+        self.bot.run(token)
+
+    def __setup(self):
+        for cog in self.cogs:
+            try:
+                self.bot.add_cog(cog)
+            except:
+                raise ShuffleBotException('issue adding cog' + cog)

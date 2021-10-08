@@ -1,6 +1,12 @@
 
 import json
-from os import write
+import os
+
+class Storage:
+    """Very simple file storage using JSON"""
+
+    def __init__(self) -> None:
+        pass
 
 PERSIST_MANIFEST = 'manifest.json'
 PERSIST_FILE_EXT = '.dat'
