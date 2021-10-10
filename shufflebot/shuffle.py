@@ -20,19 +20,6 @@ from .store import Storage
 from .config import Config, ConfigFallback
 from .aliases import Aliases, AliasesFallback
 
-util.readConfig('config.ini', True)
-FFMPEG_EXE = util.getConfig('playback', 'ffmpeg')
-STORAGE_DIR = util.getConfig('storage', 'dir')
-
-BOT_PREFIX = util.getConfig('bot', 'prefix').strip()
-if not BOT_PREFIX:
-    print('bot prefix error')
-BOT_ACTIVITY = util.getConfig('bot', 'action')
-if not BOT_ACTIVITY:
-    print('bot action error')
-    BOT_ACTIVITY = 'unknown'
-
-
 # Shuffle bot commands
 class Shuffle(commands.Cog):
     """Shuffle discord cog for ShuffleBot"""
@@ -47,14 +34,14 @@ class Shuffle(commands.Cog):
         self.playlists = playlists
         self.tracks = tracks
 
+        # Use profiles collection
         if self.usingProfiles:
             self.updateProfiles()
 
     # Server and command management
     # Make sure every player on the server has a profile
     def updateProfiles(self):
-        
-        store.setCollection('profiles', self.profiles)
+        pass
 
     def argPlaylistOrTrack(arg):
         if arg != None:
@@ -136,25 +123,24 @@ class ShuffleBot:
         if aliases_file is None:
             aliases_file = AliasesFallback.aliases_file
 
-        self.config = Config(config_file)
+        config = Config(config_file)
         if self.config.use_aliases:
             self.aliases = Aliases(aliases_file)
 
-        self.storage = None
+        self.storage = Storage()
 
         # Dev
         self.dev_cmds = []
         self.dev_users = []
 
         # Storage (needs refactor...)
-        store.setDir(STORAGE_DIR)
-        store.load()
-        store.useCollection('profiles')
-        store.useCollection('playlists')
-        store.useCollection('tracks')
+        self.storage.load()
+        self.storage.useCollection('profiles')
+        self.storage.useCollection('playlists')
+        self.storage.useCollection('tracks')
 
         # Bot creation
-        self.bot = commands.Bot(command_prefix=BOT_PREFIX)
+        self.bot = commands.Bot(command_prefix=config.bot_prefix)
         self.cogs = [
             Shuffle(self.bot)
         ]
@@ -174,4 +160,4 @@ class ShuffleBot:
             try:
                 self.bot.add_cog(cog)
             except:
-                raise ShuffleBotException('issue adding cog' + cog)
+                raise ShuffleBotException('issue adding cog ' + type(cog).__name__)
