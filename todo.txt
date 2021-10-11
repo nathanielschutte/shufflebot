@@ -12,7 +12,17 @@
             pip --upgrade -r requirements.txt
 
 5. Write downloader
+    Use library to get mp3s from search queries and links
 
 6. Connect !play -> downloader -> .mp3 in audiocache
+    Grab command author's voice channel
+    Check if link or search query
+        Link
+    Grab first youtube title -> use as key
+    Check name and see if its in audio cache
+        If not download it
+        If it is grab the mp3
+    Update cache keys
+    Play the mp3 in audio channel
 
 7. Write pip and git in run.py, add checks

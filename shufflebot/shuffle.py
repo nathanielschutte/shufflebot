@@ -34,16 +34,7 @@ class Shuffle(commands.Cog):
         self.playlists = playlists
         self.tracks = tracks
 
-        # Use profiles collection
-        if self.usingProfiles:
-            self.updateProfiles()
-
-    # Server and command management
-    # Make sure every player on the server has a profile
-    def updateProfiles(self):
-        pass
-
-    def argPlaylistOrTrack(arg):
+    def __argPlaylistOrTrack(arg):
         if arg != None:
             if arg == 'playlists' or arg == 'playlist' or arg == 'p':
                 return 1
@@ -55,7 +46,7 @@ class Shuffle(commands.Cog):
     # Commands
     @commands.command(help='Search online or paste a URL')
     async def play(self, ctx, arg=None):
-        self.helper(arg)
+        pass
 
     @commands.command(help='Temporarily stop playback')
     async def pause(self, ctx):
@@ -75,7 +66,7 @@ class Shuffle(commands.Cog):
 
     @commands.command(help='Show all saved playlists and tracks')
     async def list(self, ctx, arg=None):
-        type = self.argPlaylistOrTrack(arg)
+        type = self.__argPlaylistOrTrack(arg)
         title = ''
         if type == 0:
             title = 'Playlist and Tracks'
@@ -133,7 +124,7 @@ class ShuffleBot:
         self.dev_cmds = []
         self.dev_users = []
 
-        # Storage (needs refactor...)
+        # Storage
         self.storage.load()
         self.storage.useCollection('profiles')
         self.storage.useCollection('playlists')

@@ -7,8 +7,10 @@ import time
 def check_environment() -> None:
     print('Checking bot environment...')
 
+    # These directories need to be here to run bot
     try:
         assert os.path.isdir('config'), 'cannot find dir "config"'
+        assert os.path.isdir('storage'), 'cannot find dir "storage"'
         assert os.path.isdir('shufflebot'), 'cannot find dir "shufflebot"'
     except AssertionError as e:
         print(f'Failed environment check: {e}')
@@ -49,7 +51,7 @@ def main() -> int:
                 else:
                     print('Error type ' + e.__class__.__name__)
             else:
-                print('Unknown error starting bot')
+                print(f'Unknown error: {e}')
         
         # Dependency issue, try to upgrade pip with requirements.txt
         except ImportError:
