@@ -3,6 +3,7 @@
 
 import os
 import time
+from dotenv import load_dotenv
 
 def check_environment() -> None:
     print('Checking bot environment...')
@@ -19,6 +20,12 @@ def check_environment() -> None:
 
 def main() -> int:
 
+    load_dotenv()
+    if (os.getenv('DEV') == '1'):
+        from shufflebot import ShuffleBot
+        bot = ShuffleBot()
+        return bot.run()
+
     # Startup checks
     check_environment()
     
@@ -31,10 +38,11 @@ def main() -> int:
 
     while keep_trying:
         bot = None
+        code = -1
         try:
             from shufflebot import ShuffleBot
             bot = ShuffleBot()
-            bot.run()
+            code = bot.run()
         
         # Better go and fix these
         except (AttributeError, SyntaxError, NameError) as e:
@@ -67,14 +75,22 @@ def main() -> int:
                 break
 
         finally:
-            tries += 1
+            if code != 1:
+                tries += 1
+            else:
+                keep_trying = False
 
             if tries >= max_tries:
                 print('Restarts exceeded, exiting...')
                 break
-            else:
+            elif keep_trying and bot is not None:
                 print(f'Restarting in {retry_wait_time} seconds...')
                 time.sleep(retry_wait_time)
+            else:
+                return code
+    
+    # if retry loop broken
+    return -1
 
 if __name__ == '__main__':
     print('ShuffleBot exited with code', main())
