@@ -16,7 +16,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from youtube_dl import downloader
 
-from .exceptions import ShuffleBotException, FormattedException
+from .exceptions import DownloadException, ShuffleBotException, FormattedException
 from .store import Storage
 from .config import Config, ConfigFallback
 from .aliases import Aliases, AliasesFallback
@@ -106,18 +106,81 @@ class Shuffle(commands.Cog):
     # Create a new player window
     # ShuffleBot in <channel>
     # field: <track> value: <state>
-    # footer: help
-    def __get_window(self, player: Player) -> discord.Embed:
+    # footer: error message
+    def __get_window(self, player: Player, err=None) -> discord.Embed:
         embed = discord.Embed()
-        embed.set_author(
-            name=('spinnin\' in channel [' + player.voice_channel + ']'),
-            icon_url="https://raw.githubusercontent.com/nathanielschutte/shufflebot/master/icon.jpg"
-        )
-        if player.state == PlayerState.STOPPED:
-            embed.add_field(name=player.state_string(), value='none')
+
+        if player is None:
+            embed.set_author(
+                name=('spinnin\' in channel: ' + player.voice_channel),
+                icon_url=self.config.bot_icon
+            )
+            if err is None:
+                err = 'unknown'
+            embed.add_field(name='Error', value=err)
+
         else:
-            embed.add_field(name=player.current, value=player.state_string())
+            embed.set_author(
+                name=('spinnin\' in channel: ' + player.voice_channel),
+                icon_url=self.config.bot_icon
+            )
+            if player.state == PlayerState.STOPPED:
+                embed.add_field(name='none', value=player.state_string())
+            else:
+                embed.add_field(name=player.current, value=player.state_string())
+
+            # error message if applicable
+            if err is not None:
+                embed.set_footer(text=('Error: ' + err))
+
         return embed
+
+    # Update all of a Players windows
+    # - bring active text channel's window to the bottom, edit the others
+    # - on error, only update active window
+    async def __update_windows(self, ctx, player: Player, text_channel_id: int, err=None) -> None:
+
+        if player is None:
+            print('shuffle error: no player to update windows')
+            return
+
+        if err is not None:
+            print(f'shuffle error: {err}')
+
+        text_channels = player.msg_ids
+        for chan_id, msg_id in text_channels.items():
+            
+            # active text channel window
+            if chan_id == text_channel_id:
+                msg = await ctx.channel.fetch_message(msg_id)
+                msg_found = msg is not None
+                msg_latest = True
+
+                # current window is not most recent message
+                if msg_found:
+                    async for msg_first in ctx.channel.history(limit=1):
+                        if msg_first.id != msg.id:
+                            msg_latest = False
+                            await msg.delete()
+                print(f'UPDATE WINDOW {msg_found=} {msg_latest=}')
+                
+                if msg_latest:
+                    await msg.edit(content=None, embed=self.__get_window(player, err=err))
+                else:
+                    msg_new = await ctx.send(content=None, embed=self.__get_window(player, err=err))
+                    player.msg_ids[text_channel_id] = msg_new.id
+                
+
+            # different text channel
+            elif err is None:
+                channel = self.bot.get_channel(chan_id)
+                if channel is not None:
+                    msg = await channel.fetch_message(msg_id)
+
+                    # just edit messages in other channels
+                    if msg is not None:
+                        await msg.edit(embed=self.__get_window(player))
+
     
 
     # Commands
@@ -134,17 +197,14 @@ class Shuffle(commands.Cog):
         arg = ''.join(args).strip()
         print(f'play: query is \'{arg}\'')
 
-        # need a new downloader for each request to at minimim get online track name
+        # need a new downloader for each request to at minimum get online track name
         d = Downloader(self.config.audiodir)
-        await d.get_title(arg)
 
         # get voice channel
         target = ctx.author
         if target.voice != None and target.voice.channel != None:
             voice_channel = ctx.author.voice.channel
-
-        # no voice channel, do nothing
-        else:
+        else: # no voice channel, do nothing
             return
 
         # voice channel info
@@ -157,42 +217,53 @@ class Shuffle(commands.Cog):
 
         # new player for this audio channel
         if channel_id not in self.control.players:
-            print('new Player()')
-
             # TODO
             # check for existing message for this channel and delete it
 
             # new player window (message) and Player for this voice channel
-            msg = await ctx.send('loading...')
+            msg = await ctx.send('Creating player...')
             self.control.players[channel_id] = Player(
                 msg.id,
                 text_channel_id,
                 self.config.audiodir,
                 channel_name # audio channel name
             )
-
-        # get existing player for this audio channel
+        
+        # make sure this text channel has a window
         else:
-            print('existing Player()')
-
-            # make sure there's an existing message to work with
-            msg = await ctx.channel.fetch_message(self.control.players[channel_id].msg_ids[text_channel_id])
-            if msg == None:
-                msg = await ctx.send('loading...')
+            if text_channel_id not in self.control.players[channel_id].msg_ids:
+                msg = await ctx.send('Adding player window...')
                 self.control.players[channel_id].msg_ids[text_channel_id] = msg.id
 
-        if msg != None:
-            await msg.edit(content='', embed=self.__get_window(self.control.players[channel_id]))
-        else:
-            print('how')
+        player = self.control.players[channel_id]
+
+        # get the track title
+        title = None
+        try:
+            title = await d.get_title(arg) # await this since it blocks next steps
+        except DownloadException as e:
+            await self.__update_windows(ctx, player, text_channel_id, err='requested URL is bad')
+        finally:
+            if title is None:
+                return
         
+        # check cache for track
+        in_cache = False
 
-        # Check if in audiocache
-            # Is -> ref mp3
-            # Isnt -> use downloader
-                # Check audio cache size, remove last vid until under maximum
-                # Ref new mp3
+        # queue track
+        player.push((title, in_cache)) # queue track, cached?
+        await self.__update_windows(ctx, player, text_channel_id)
 
+        # not in cache:
+        # download track
+        # add to cache
+        # tell player track is downloaded
+
+        # join audio channel and play track
+
+        # done
+        # pop queue
+        
 
 
     # msg = await ctx.channel.fetch_message(self.control.players[])
@@ -221,36 +292,22 @@ class Shuffle(commands.Cog):
     @commands.command(help='Show all saved playlists and tracks')
     async def list(self, ctx, arg=None):
         type = self.__arg_playlist_or_track(arg)
-        title = ''
-        if type == 0:
-            title = 'Playlist and Tracks'
 
-        embed = discord.Embed(title=title)
-
-        # get playlists
-        if type == 0 or type == 1:
-            content = ''
-            if len(self.playlists) > 0:
-                pass
-            else:
-                content = 'none'
-            embed.add_field(name='Playlists', value=content, inline=False)
-                
-        # get tracks
-        if type == 0 or type == 2:
-            content = ''
-            if len(self.tracks) > 0:
-                pass
-            else:
-                content = 'none'
-            embed.add_field(name='Tracks', value=content, inline=False)
-
-        await ctx.send(embed=embed)
-
-    # clear
+    # clear queue
     @commands.command(help='Clear the queue')
-    async def clear(self, ctx, arg, ):
+    async def clear(self, ctx, arg):
         pass
+
+    # disconnect bot
+    @commands.command(help='Disconnect bot from audio channel')
+    async def disconnect(self, ctx, *args):
+        pass
+
+        # delete all its messages
+
+        # stop playback and leave voice channel
+
+        # delete Player 
 
     # Events
     # on ready
@@ -258,3 +315,6 @@ class Shuffle(commands.Cog):
     async def on_ready(self):
         await self.bot.change_presence(activity=discord.Game(self.config.bot_isplaying))
         print(f'{self.bot.user} is connected using prefix {self.config.bot_prefix}')
+
+    # on disconnect
+    
