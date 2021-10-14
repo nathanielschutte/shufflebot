@@ -263,7 +263,6 @@ class Shuffle(commands.Cog):
 
         # done
         # pop queue
-        
 
 
     # msg = await ctx.channel.fetch_message(self.control.players[])
