@@ -21,6 +21,14 @@ class Cache:
         self.capacity = 100 # MB
         self.latest = 0
 
+    # Check if cache contains track
+    def contains(self, title):
+        if len(self.tracks):
+            for track in self.tracks:
+                if track[0] == title:
+                    return True
+        return False
+
     # Indicate mp3 added to directory
     def track_added(self, title, size):
         if self.__check_size(size):
