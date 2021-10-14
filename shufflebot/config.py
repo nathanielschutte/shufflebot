@@ -39,6 +39,7 @@ class Config:
         # [bot]
         self.bot_prefix = config.get('bot', 'prefix', ConfigFallback.bot_prefix)
         self.bot_isplaying = config.get('bot', 'isplaying', ConfigFallback.bot_isplaying)
+        self.bot_icon = config.get('bot', 'icon', ConfigFallback.bot_icon)
 
         # [storage]
         self.persistdir = config.get('storage', 'persistdir', ConfigFallback.persistdir)
@@ -64,6 +65,7 @@ class ConfigFallback:
 
     bot_prefix = '!'
     bot_isplaying = 'Fortnite'
+    bot_icon = ''
 
     persistdir = 'storage'
     audiodir = 'audiocache'
