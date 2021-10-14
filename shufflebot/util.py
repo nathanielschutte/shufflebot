@@ -19,7 +19,10 @@ class ConfigReader:
                 line.strip()
 
                 # Ignore anything after #
-                if line.find('#') != -1:
+                commentIdx = line.find('#')
+                if commentIdx != -1:
+                    if commentIdx == 0:
+                        continue
                     line = line[:line.find('#')]
                 
                 # Set the current group

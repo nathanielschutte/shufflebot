@@ -1,4 +1,4 @@
 .env
-shufflebot/__pycache__/
-__pycache__
+shufflebot/__pycache__/*
+__pycache__/*
 todo.txt
