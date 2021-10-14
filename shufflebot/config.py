@@ -32,16 +32,21 @@ class Config:
         # Check all sections exist...
 
         # Add all the config vars
+        # [aliases]
         self.use_aliases = config.get_bool('aliases', 'use_aliases', ConfigFallback.use_aliases)
         self.aliases_file = config.get('aliases', 'aliases_file', ConfigFallback.aliases_file)
 
+        # [bot]
         self.bot_prefix = config.get('bot', 'prefix', ConfigFallback.bot_prefix)
         self.bot_isplaying = config.get('bot', 'isplaying', ConfigFallback.bot_isplaying)
 
+        # [storage]
         self.persistdir = config.get('storage', 'persistdir', ConfigFallback.persistdir)
         self.audiodir = config.get('storage', 'audiodir', ConfigFallback.audiodir)
 
+        # [ffmpeg]
         self.ffmpegdir = config.get('ffmpeg', 'exedir', ConfigFallback.exedir)
+        self.ffmpegexe = config.get('ffmpeg', 'ffmpeg', ConfigFallback.ffmpeg)
 
     # check config values
     def config_checks():
@@ -64,3 +69,4 @@ class ConfigFallback:
     audiodir = 'audiocache'
 
     exedir = 'bin'
+    ffmpeg = 'ffmpeg.exe'
