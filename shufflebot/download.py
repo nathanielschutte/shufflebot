@@ -2,8 +2,11 @@
 # Download videos
 
 from __future__ import unicode_literals
+from validators.utils import ValidationFailure
 import youtube_dl
 import validators
+
+from .exceptions import DownloadException 
 
 # test: https://www.youtube.com/watch?v=oR4uKcvQbGQ
 
@@ -31,7 +34,7 @@ class Downloader:
         self.ydl = youtube_dl.YoutubeDL(self.opts)
 
     # Find out what video title is associated with the given URL or query string
-    async def get_title(self, string):
+    async def get_title(self, string) -> str:
         
         # determine if URL or query
         isUrl = self.__check_url_vs_query(string)
@@ -40,8 +43,14 @@ class Downloader:
         # extract info no download
         with self.ydl:
             if isUrl:
-                result = self.ydl.extract_info(string, download=False)
-                print(f'URL RESULT: {result}')
+                try:
+                    result = self.ydl.extract_info(string, download=False)
+                    print(f'URL RESULT: {result["title"]}')
+                    return result['title']
+                except Exception as e:
+                    raise DownloadException(e)
+
+
 
     # Is the string a URL
     def __check_url_vs_query(self, string):
@@ -52,7 +61,11 @@ class Downloader:
         
         # just one word, see if it's a URL
         else:
-            return validators.url(string)
+            valid = validators.url(string)
+            if valid is True:
+                return True
+            else:
+                return False
 
     # Download status events
     def __status_hook(self, d):

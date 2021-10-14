@@ -26,7 +26,7 @@ class Player:
 
     def __init__(self, msg_id: int, text_channel_id: int, audiodir: str, voice_channel: str) -> None:
         self.queue = []
-        self.current = 'song'
+        self.current = None
 
         # message ids for each text channel
         self.msg_ids = {}
@@ -38,17 +38,24 @@ class Player:
         # window content
         self.title = 'ShuffleBot'
         self.voice_channel = voice_channel
-        self.state: PlayerState = PlayerState.STOPPED
+        self.state: PlayerState = PlayerState.WAITING
     
     # Queue a song
     def push(self, track) -> None:
-        self.queue.append(track)
+        if self.current is None:
+            self.current = track
+        else:
+            self.queue.append(track)
+        print(f'player: {self}')
 
     # Get next track title
     def pop(self) -> str:
         if len(self.queue) > 0:
             track = self.queue[0]
             del self.queue[0]
+
+            self.current = track
+
             return track
 
     # Queue length
@@ -70,3 +77,6 @@ class Player:
         elif self.state == PlayerState.WAITING:
             str = 'downloading...'
         return str
+
+    def __str__(self) -> str:
+        return f'current: {self.current} queue: {self.queue}'
