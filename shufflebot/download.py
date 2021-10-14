@@ -5,6 +5,8 @@ from __future__ import unicode_literals
 import youtube_dl
 import validators
 
+# test: https://www.youtube.com/watch?v=oR4uKcvQbGQ
+
 class Downloader:
     """YouTube mp3 downloader"""
 
@@ -22,7 +24,6 @@ class Downloader:
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
-                'noplaylist': 'True'
             }],
             'progress_hooks': [self.__status_hook],
         }
@@ -30,7 +31,7 @@ class Downloader:
         self.ydl = youtube_dl.YoutubeDL(self.opts)
 
     # Find out what video title is associated with the given URL or query string
-    def get_title(self, string):
+    async def get_title(self, string):
         
         # determine if URL or query
         isUrl = self.__check_url_vs_query(string)

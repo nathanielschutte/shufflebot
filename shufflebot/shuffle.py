@@ -11,6 +11,7 @@
 
 import os
 import discord
+from discord import embeds
 from discord.ext import commands
 from dotenv import load_dotenv
 from youtube_dl import downloader
@@ -20,7 +21,7 @@ from .store import Storage
 from .config import Config, ConfigFallback
 from .aliases import Aliases, AliasesFallback
 from .download import Downloader
-from .player import Player
+from .player import Player, PlayerState
 
 class ShuffleBot:
     """ShuffleBot runner"""
@@ -93,7 +94,7 @@ class Shuffle(commands.Cog):
         self.playlists = control.storage.getCollection('playlists')
         self.tracks = control.storage.getCollection('tracks')
 
-    def __argPlaylistOrTrack(arg):
+    def __arg_playlist_or_track(arg):
         if arg != None:
             if arg == 'playlists' or arg == 'playlist' or arg == 'p':
                 return 1
@@ -101,35 +102,100 @@ class Shuffle(commands.Cog):
                 return 2
         else:
             return 0
+
+    # Create a new player window
+    # ShuffleBot in <channel>
+    # field: <track> value: <state>
+    # footer: help
+    def __get_window(self, player: Player) -> discord.Embed:
+        embed = discord.Embed()
+        embed.set_author(
+            name=('spinnin\' in channel [' + player.voice_channel + ']'),
+            icon_url="https://raw.githubusercontent.com/nathanielschutte/shufflebot/master/icon.jpg"
+        )
+        if player.state == PlayerState.STOPPED:
+            embed.add_field(name=player.state_string(), value='none')
+        else:
+            embed.add_field(name=player.current, value=player.state_string())
+        return embed
     
+
     # Commands
     # play
     @commands.command(help='Search online or paste a URL')
     async def play(self, ctx, *args):
-        
+
+        # TEMP - TODO still create player, don't download, error message formatting
+        if len(args) < 1:
+            print('no args')
+            return
+
         # track title or URL
         arg = ''.join(args).strip()
         print(f'play: query is \'{arg}\'')
 
-        user = ctx.message.author
-        channel_id = user.voice.voice_channel.id
+        # need a new downloader for each request to at minimim get online track name
+        d = Downloader(self.config.audiodir)
+        await d.get_title(arg)
+
+        # get voice channel
+        target = ctx.author
+        if target.voice != None and target.voice.channel != None:
+            voice_channel = ctx.author.voice.channel
+
+        # no voice channel, do nothing
+        else:
+            return
+
+        # voice channel info
+        channel_id = voice_channel.id
+        channel_name = voice_channel.name
+
+        # text channel info
+        text_channel_id = ctx.channel.id
+        msg = None
 
         # new player for this audio channel
         if channel_id not in self.control.players:
-            # send initial message
-            self.control.players[channel_id] = Player()
+            print('new Player()')
+
+            # TODO
+            # check for existing message for this channel and delete it
+
+            # new player window (message) and Player for this voice channel
+            msg = await ctx.send('loading...')
+            self.control.players[channel_id] = Player(
+                msg.id,
+                text_channel_id,
+                self.config.audiodir,
+                channel_name # audio channel name
+            )
+
+        # get existing player for this audio channel
         else:
-            # update Player messages
-            pass
+            print('existing Player()')
+
+            # make sure there's an existing message to work with
+            msg = await ctx.channel.fetch_message(self.control.players[channel_id].msg_ids[text_channel_id])
+            if msg == None:
+                msg = await ctx.send('loading...')
+                self.control.players[channel_id].msg_ids[text_channel_id] = msg.id
+
+        if msg != None:
+            await msg.edit(content='', embed=self.__get_window(self.control.players[channel_id]))
+        else:
+            print('how')
         
+
         # Check if in audiocache
             # Is -> ref mp3
             # Isnt -> use downloader
                 # Check audio cache size, remove last vid until under maximum
                 # Ref new mp3
-        # Start bplay
-        
-        pass
+
+
+
+    # msg = await ctx.channel.fetch_message(self.control.players[])
 
     # pause
     @commands.command(help='Temporarily stop playback')
@@ -154,7 +220,7 @@ class Shuffle(commands.Cog):
     # list
     @commands.command(help='Show all saved playlists and tracks')
     async def list(self, ctx, arg=None):
-        type = self.__argPlaylistOrTrack(arg)
+        type = self.__arg_playlist_or_track(arg)
         title = ''
         if type == 0:
             title = 'Playlist and Tracks'
