@@ -10,8 +10,9 @@ PERSIST_STORE_DEFAULT = './storage'
 class Storage:
     """Very simple collection storage using JSON"""
 
-    def __init__(self, dir=PERSIST_STORE_DEFAULT) -> None:
+    def __init__(self, dir=PERSIST_STORE_DEFAULT, verbose=False) -> None:
         self.dir = dir.strip()
+        self.verbose = verbose
 
         # store dir check
         self.__checkdir(dir)
@@ -26,17 +27,25 @@ class Storage:
     # Storge directory
     def setDir(self, dir):
         self.dir = dir
-        print(f'storage: using directory {self.dir}')
+        if self.verbose:
+            print(f'storage: using directory {self.dir}')
 
     # AFTER load - add collection to storage, store in file, update meta
     def useCollection(self, name):
+
+        # already have this collection
         if len(self.storage) > 0 and name in self.storage:
             return
+
+        # first time collection
         else:
             self.storage[name] = {}
             self.meta_count = self.meta_count + 1
             self.meta_list.append(name)
-            print(f'storage: added collection [{name}]')
+
+            if self.verbose:
+                print(f'storage: added collection [{name}]')
+
             self.persistCollection(name)
             self.writeManifest()
 
@@ -110,17 +119,22 @@ class Storage:
                     str = ''.join(file.readlines())
                     if len(str) > 0:
                         collection = json.loads(str)
+
                         if collection != None:
                             self.storage[item] = collection
                             newList.append(item)
-                            print(f'storage: loaded collection [{item}] ({len(collection)} lines)')
+
+                            if self.verbose:
+                                print(f'storage: loaded collection [{item}] ({len(collection)} lines)')
+                            
                             n += 1
                 except:
                     print(f'storage: error loading collection [{item}]')
                 finally:
                     file.close()
             
-            print(f'storage: finished loading {n} collections (expected {count})')
+            if self.verbose:
+                print(f'storage: finished loading {n} collections (expected {count})')
 
         except:
             print(f'storage: error reading storage data')
@@ -131,7 +145,9 @@ class Storage:
                 self.meta_count = n
                 self.meta_list = newList
                 self.writeManifest()
-                print('storage: rewriting metadata')
+
+                if self.verbose:
+                    print('storage: rewriting metadata')
 
     # Store collection data
     def persistCollection(self, name):
