@@ -10,11 +10,15 @@
 
 
 import os
+from time import sleep
 import discord
 from discord import embeds
 from discord.ext import commands
 from dotenv import load_dotenv
-from youtube_dl import downloader
+import asyncio
+from threading import Thread
+
+from .cache import Cache
 
 from .exceptions import DownloadException, ShuffleBotException, FormattedException
 from .store import Storage
@@ -40,6 +44,9 @@ class ShuffleBot:
 
         # Server storage object
         self.storage = Storage()
+
+        # Audio file cache
+        self.cache = Cache(config.audiodir, config.cache_cap)
         
         # Audio player objects indexed by channel ID
         self.players = {}
@@ -127,11 +134,13 @@ class Shuffle(commands.Cog):
             if player.state == PlayerState.STOPPED:
                 embed.add_field(name='none', value=player.state_string())
             else:
-                embed.add_field(name=player.current, value=player.state_string())
+                embed.add_field(name=player.current[0], value=player.state_string())
 
             # error message if applicable
             if err is not None:
                 embed.set_footer(text=('Error: ' + err))
+            else:
+                embed.set_footer(text=f'Type {self.config.bot_prefix}help if you\'re stuck')
 
         return embed
 
@@ -181,7 +190,11 @@ class Shuffle(commands.Cog):
                     if msg is not None:
                         await msg.edit(embed=self.__get_window(player))
 
-    
+
+    # Update Player state and update windows
+    async def __update_player_state(self, ctx, player: Player, state: PlayerState, text_channel_id: int) -> None:
+        player.state = state
+        await self.__update_windows(ctx, player, text_channel_id)
 
     # Commands
     # play
@@ -198,7 +211,7 @@ class Shuffle(commands.Cog):
         print(f'play: query is \'{arg}\'')
 
         # need a new downloader for each request to at minimum get online track name
-        d = Downloader(self.config.audiodir)
+        d = Downloader(self.config.audiodir, self.config.codec)
 
         # get voice channel
         target = ctx.author
@@ -215,6 +228,8 @@ class Shuffle(commands.Cog):
         text_channel_id = ctx.channel.id
         msg = None
 
+
+        # AUDIO PLAYER SETUP PART
         # new player for this audio channel
         if channel_id not in self.control.players:
             # TODO
@@ -237,10 +252,13 @@ class Shuffle(commands.Cog):
 
         player = self.control.players[channel_id]
 
+
+        # INFO AND CACHE CHECKING PART
         # get the track title
-        title = None
+        title = None # online title
+        vid_id = None # vid ID (download name)
         try:
-            title = await d.get_title(arg) # await this since it blocks next steps
+            title, vid_id = await d.get_title(arg) # await this since it blocks next steps
         except DownloadException as e:
             await self.__update_windows(ctx, player, text_channel_id, err='requested URL is bad')
         finally:
@@ -248,25 +266,83 @@ class Shuffle(commands.Cog):
                 return
         
         # check cache for track
-        in_cache = False
+        in_cache = self.control.cache.contains(title)
 
         # queue track
-        player.push((title, in_cache)) # queue track, cached?
+        if player.push((title, in_cache)) is None: # track, cached?
+            print('NO Q-ING')
+            return
         await self.__update_windows(ctx, player, text_channel_id)
 
-        # not in cache:
-        # download track
-        # add to cache
-        # tell player track is downloaded
+
+        # PLAYBACK PART
+        if not in_cache:
+            url = f'https://www.youtube.com/watch?v={vid_id}'
+            # print('shuffle: downloading ' + url)
+            d.download_video(url)
+        
+        # file extension, contatable
+        ext = self.config.codec
+        if ext[0] != '.':
+            ext = '.' + ext
+        
+        # make sure the downloaded track is there, tell cache
+        if os.path.isfile(self.config.audiodir + title + ext):
+            self.control.cache.track_added(title)
+
+        # if its not were screwed
+        if not self.control.cache.contains(title):
+            raise ShuffleBotException('downloaded file is not there')
 
         # join audio channel and play track
+        ffmpeg_exe = self.config.ffmpegdir
+        if ffmpeg_exe[-1] != '/':
+            ffmpeg_exe += '/'
+        ffmpeg_exe += self.config.ffmpegexe # bin/ffmpeg.exe
+        print(f'ffmpeg: using {ffmpeg_exe}')
+        print(f'source: {self.config.audiodir + title + ext}')
 
-        # done
-        # pop queue
+        # bot playin
+        await self.__update_player_state(ctx, player, PlayerState.PLAYING, text_channel_id)
+        vc = await voice_channel.connect()
+        vc.play(discord.FFmpegPCMAudio(
+            executable=ffmpeg_exe,
+            source=self.config.audiodir + title + ext
+        ))
         
+        # keep playin
+        while vc.is_playing() and player.state == PlayerState.PLAYING:
+            sleep(.1)
+        
+        # make sure it's stopped now
+        if player.state != PlayerState.STOPPED:
+            await self.__update_player_state(ctx, player, PlayerState.STOPPED, text_channel_id)
 
+        self.control.cache.track_finished(title) # track is removeable from cache
+        await vc.disconnect()
+        player.pop()
 
     # msg = await ctx.channel.fetch_message(self.control.players[])
+
+    # stop
+    @commands.command(help='Permanantly stop playback')
+    async def stop(self, ctx):
+
+        # get voice channel
+        target = ctx.author
+        if target.voice != None and target.voice.channel != None:
+            voice_channel = ctx.author.voice.channel
+        else: # no voice channel, do nothing
+            return
+
+        # channel info
+        channel_id = voice_channel.id
+        channel_name = voice_channel.name
+        text_channel_id = ctx.channel.id
+
+        if channel_id in self.control.players:
+            p: Player = self.control.players[channel_id]
+            await self.__update_player_state(ctx, p, PlayerState.STOPPED, text_channel_id)
 
     # pause
     @commands.command(help='Temporarily stop playback')
@@ -276,11 +352,6 @@ class Shuffle(commands.Cog):
     # resume
     @commands.command(help='Resume playback')
     async def resume(self, ctx):
-        pass
-
-    # stop
-    @commands.command(help='Permanantly stop playback')
-    async def stop(self, ctx):
         pass
 
     # skip
