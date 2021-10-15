@@ -41,13 +41,19 @@ class Config:
         self.bot_isplaying = config.get('bot', 'isplaying', ConfigFallback.bot_isplaying)
         self.bot_icon = config.get('bot', 'icon', ConfigFallback.bot_icon)
 
+        # [cache]
+        self.cache_cap = config.get('cache', 'capacity', ConfigFallback.cache_cap)
+
         # [storage]
         self.persistdir = config.get('storage', 'persistdir', ConfigFallback.persistdir)
         self.audiodir = config.get('storage', 'audiodir', ConfigFallback.audiodir)
+        if self.audiodir[-1] != '/':
+            self.audiodir += '/'
 
         # [ffmpeg]
         self.ffmpegdir = config.get('ffmpeg', 'exedir', ConfigFallback.exedir)
         self.ffmpegexe = config.get('ffmpeg', 'ffmpeg', ConfigFallback.ffmpeg)
+        self.codec = config.get('ffmpeg', 'codec', ConfigFallback.codec)
 
     # check config values
     def config_checks():
@@ -67,8 +73,11 @@ class ConfigFallback:
     bot_isplaying = 'Fortnite'
     bot_icon = ''
 
+    cache_cap = 10
+
     persistdir = 'storage'
     audiodir = 'audiocache'
 
     exedir = 'bin'
     ffmpeg = 'ffmpeg.exe'
+    codec = 'mp3'
