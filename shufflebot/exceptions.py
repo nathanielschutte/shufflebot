@@ -15,15 +15,15 @@ class ConfigException(ShuffleBotException):
 class FFmpegException(ShuffleBotException):
     pass
 
-class DownloadException(ShuffleBotException):
-    pass
-
 class FormattedException(ShuffleBotException):
     def __init__(self, error, *args, header='ShuffleBot error:') -> None:
         self.error = error
         self.header = header
-        self.format = '{header}\n{error}\n'
+        self.format = '\n{header}\n{error}\n'
     
     @property
     def message(self):
         return self.format.format(header = self.header, error = self.error)
+
+class DownloadException(FormattedException):
+    pass
