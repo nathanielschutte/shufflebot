@@ -29,6 +29,8 @@ class Cache:
 
     # See what's already in audio cache
     def load_current(self):
+        if not os.path.isdir(self.dir):
+            os.mkdir(self.dir)
         for file in os.listdir(self.dir):
             if file.endswith( self.ext):
                 print('cache: discovered existing file ' + file)
