@@ -8,7 +8,7 @@ TrackEntry = tuple[str, int, bool]
 
 class Cache:
 
-    def __init__(self, dir) -> None:
+    def __init__(self, dir, capacity=0, ext='.mp3') -> None:
         
         # Stored tracks
         self.tracks = []
@@ -17,9 +17,24 @@ class Cache:
             dir += '/'
         self.dir = dir
 
+        if ext[0] != '.': # concatable
+            ext = '.' + ext
+        self.ext = ext
+
         self.used = 0 # MB
-        self.capacity = 100 # MB
+        self.capacity = int(capacity) # MB
         self.latest = 0
+
+        self.load_current()
+
+    # See what's already in audio cache
+    def load_current(self):
+        if not os.path.isdir(self.dir):
+            os.mkdir(self.dir)
+        for file in os.listdir(self.dir):
+            if file.endswith( self.ext):
+                print('cache: discovered existing file ' + file)
+                self.track_added(os.path.splitext(file)[0])
 
     # Check if cache contains track
     def contains(self, title):
@@ -30,26 +45,64 @@ class Cache:
         return False
 
     # Indicate mp3 added to directory
-    def track_added(self, title, size):
-        if self.__check_size(size):
-            self.tracks.append((title, self.latest, True)) # True = in use
-            self.used += size
-            self.latest += 1
+    def track_added(self, title):
+
+        # already have this track for some reason
+        had_it = False
+        if self.contains(title):
+            idx = 0
+            for track in self.tracks:
+                if track[0] == title:
+                    # just make it "in use"
+                    updated_track = (track[0], track[1], True)
+                    self.tracks[idx] = updated_track
+                    had_it = True
+                    print('cache: resetting discovered track ', updated_track)
+                idx += 1
+
+        # get file size
+        size = 0
+        if os.path.isfile(self.dir + title + self.ext):
+            size = os.path.getsize(self.dir + title + self.ext)
+            size /= (1024 * 1024) # B -> MB
         else:
-            self.__remove_oldest()
+            return
+        #print(self.dir + title, size)
+
+        # clear out old tracks until there's space
+        if not had_it:
+            rm_success = True
+            while rm_success and len(self.tracks) > 0 and not self.__check_size(size):
+                rm_success = self.__remove_oldest()
+
+            # only track, if there is no space, no luck
+            if not self.__check_size(size):
+                print('cache: trying to add a file that is too big!!! skipping')
+                return
+
+        # track add
+        self.tracks.append((title, self.latest, True)) # True = in use
+        self.used += size
+        self.latest += 1
+        print(f'cache: added file, using {self.used:.2f}/{self.capacity} MBs')
+
+        
 
     # Indicate mp3 finished playback
     def track_finished(self, title):
         if len(self.tracks):
+            idx = 0
             for track in self.tracks:
-
-                # have track
                 if track[0] == title:
-                    track[2] = False # now removeable
+                    # make track removeable
+                    updated_track = (track[0], track[1], False)
+                    self.tracks[idx] = updated_track
+                idx += 1
 
 
     # Enough space?
     def __check_size(self, spec):
+        print(f'cache: checking usage {(self.used):.2f}/{self.capacity} adding {spec:.2f}')
         return (self.capacity - self.used - spec) >= 0
 
     # Trash the oldest track
@@ -73,10 +126,18 @@ class Cache:
 
             # rm file
             if os.path.exists(self.dir + self.tracks[rm_idx][0]):
+                rm_size = os.path.getsize(self.dir + self.tracks[rm_idx][0])
                 os.remove(self.dir + self.tracks[rm_idx][0])
+                self.used -= rm_size
+
+                print(f'cache: removed file, using {self.used:.2f}/{self.capacity} MBs')
+                return True
+
             else:
                 print(f'cache: could not find file {self.dir + self.tracks[rm_idx][0]}')
+                return False
 
         # either empty or none removeable
         else:
-            print(f'could not remove any tracks, they might be in use')
+            print(f'cache: could not remove any tracks, they might be in use')
+            return False

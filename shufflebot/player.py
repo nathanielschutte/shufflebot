@@ -44,9 +44,13 @@ class Player:
     def push(self, track) -> None:
         if self.current is None:
             self.current = track
+            return True
         else:
+            # NO QUEUE BOT
+            return False
+
             self.queue.append(track)
-        print(f'player: {self}')
+        # print(f'player: {self}')
 
     # Get next track title
     def pop(self) -> str:
@@ -57,6 +61,9 @@ class Player:
             self.current = track
 
             return track
+        else:
+            self.current = None
+            return None
 
     # Queue length
     def get_len(self) -> int:
