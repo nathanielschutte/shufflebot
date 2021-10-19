@@ -1,23 +1,34 @@
 import asyncio
 import traceback
 
+
+# WANT
+# one music player per channel
+# shared cache between players
+# update screen at any time
+# lock protections
+# play, stop, skip
+
+# need to see if Waits Events and Conditions are useable
+
 # Represents audio file store in file system
 # [track name, downloading?]
 TrackStore = dict[str, bool]
 cache: TrackStore = {}
 
 # Need a small amount of output clarity
+# filters = ['SCREEN']
+# screens = ['SCREEN 0', 'SCREEN 1']
 filters = []
 screens = []
 def log(group, message):
     if len(filters) > 0:
-        if not group in filters:
+        if not (group in filters or 'SCREEN' in group):
             return
     if len(screens) > 0:
         if 'SCREEN' in group and not group in screens:
             return
     print(f'[{group}] {message}')
-
 
 
 # Simulate two fetch tasks:
@@ -83,26 +94,32 @@ class Player():
         title = await Downloader.fetch_title(track)
         log('queue', 'Got title')
 
+        lock = asyncio.Lock()
+
         # check cache
-        cached = title in cache
-        self._queue.append([title, cached])
-        #print(self._queue)
+        async with lock:
+            cached = title in cache
+            self._queue.append([title, cached])
         
         # start the download if needed
         if not cached:
             log('queue', 'Not cached, downloading...')
-            cache[title] = title # cache now so that an identical query will know this title is being downloaded
+
+            async with lock:
+                cache[title] = title # cache now so that an identical query will know this title is being downloaded
+
+            # download content
             await Downloader.download(title)
+
             # handle download failure here and remove from cache
             # look for identical queries and remove them from queue or restart their downloads?
             log('queue', 'Download finished, updating queue status...')
 
              # track is loaded already and waiting
+             # maybe set an Event here to wait on in playback?
             if self.loaded_track == title:
                 self.loaded_track_downloaded = True
                 log('queue', 'Status updated in current')
-            else:
-                log('queue', 'Error, cannot find track to update download status')
 
             # track sitting in queue - still check this in case of dupe queries
             for t in self._queue:
@@ -140,6 +157,9 @@ class Player():
 
         log('playback', 'Starting playback loop...')
         while self.exist:
+
+            if self.state == 'skip':
+                self.state = 'idle'
 
             # idle until something is queued
             if len(self._queue) == 0:
@@ -184,15 +204,20 @@ class Player():
             # double check that the cache is accurate, if the file is missing abort on this track
 
             if self.state != 'play':
+
+                # early abort this track
+                if self.state == 'stop' or self.state == 'skip':
+                    continue
+
                 self.state = 'play' # make sure state is right
-                self.__screen_updates(self.state + ': ' + self.loaded_track)
+
             if self.connected == False:
                 self.connected = True # connect to the voice channel
 
             # play track
             is_playing = True
             duration = 60 # 6 s
-            log('playback', f'Playing {self.loaded_track}')
+            self.__screen_updates(self.state + ': ' + self.loaded_track)
             while self.state == 'play' and is_playing:
                 duration -= 1
                 await asyncio.sleep(0.1)
@@ -201,6 +226,8 @@ class Player():
             log('playback', f'Finished playing {self.loaded_track}')
 
             if self.state == 'stop': # direct state change to stop playback early
+                self.__screen_updates(self.state)
+            if self.state == 'skip':
                 self.__screen_updates(self.state)
 
         self.in_playback = False
@@ -248,7 +275,6 @@ class Bot():
         # if player exists, stop playback
         if channel_id in self.runner.players:
             player: Player = self.runner.players[channel_id]
-
             player.set_status('stop')
 
         log('command', 'Done executing stop')
@@ -289,15 +315,14 @@ async def sim(runner):
     # play(channel_id, query)
     await runner.bot.play(0, 'fireflies')
     await asyncio.sleep(1)
+    await runner.bot.play(0, 'apple pies')
+    await asyncio.sleep(1)
 
     # different channel, different player, but should share cached tracks
-    await runner.bot.play(1, 'fireflies')
-    await asyncio.sleep(2)
+    # await runner.bot.play(1, 'fireflies')
+    # await asyncio.sleep(2)
 
     await runner.bot.play(1, 'ACDC - Back in Black')
-    
-    await runner.bot.stop(0)
-
     await asyncio.sleep(1)
     
     # duplicate calls should have download updates all resolve at once
