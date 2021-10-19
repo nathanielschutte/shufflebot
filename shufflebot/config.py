@@ -9,20 +9,25 @@ from .util import ConfigReader
 class Config:
     """Holds a config state"""
 
-    def __init__(self, file):
+    def __init__(self, file=None):
+
+        # should have a config filename
+        if file is None:
+            file = 'config/config.ini'
+
         self.file = file
 
         if not os.path.isfile(self.file):
 
-            # Missing extension
+            # missing extension
             if os.path.isfile(self.file + '.ini'):
                 self.file += '.ini'
 
-            # Use config template file
+            # missing altogether, use config template file
             elif os.path.isfile('config/config_template.ini'):
                 shutil.copy('config/config_template.ini', self.file)
             
-            # All config files missing
+            # all config files missing
             else:
                 raise FormattedException('Config files not found')
 
@@ -55,13 +60,14 @@ class Config:
         self.ffmpegexe = config.get('ffmpeg', 'ffmpeg', ConfigFallback.ffmpeg)
         self.codec = config.get('ffmpeg', 'codec', ConfigFallback.codec)
 
-    # check config values
+    # Check config values
     def config_checks():
         pass
 
-    # check if config is missing any values in config_template.ini
+    # Check what the config was missing
     def config_diff():
         template_path = 'config/config_template.ini'
+        pass
 
 # Config defaults for fallback values
 class ConfigFallback:
