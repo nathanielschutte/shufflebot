@@ -7,7 +7,7 @@ import traceback
 # shared cache between players
 # update screen at any time
 # lock protections
-# play, stop, skip
+# play (queue), stop, skip
 
 # need to see if Waits Events and Conditions are useable
 
@@ -315,15 +315,15 @@ async def sim(runner):
     # play(channel_id, query)
     await runner.bot.play(0, 'fireflies')
     await asyncio.sleep(1)
-    await runner.bot.play(0, 'apple pies')
+    await runner.bot.play(0, 'ACDC - Back in Black')
     await asyncio.sleep(1)
 
     # different channel, different player, but should share cached tracks
     # await runner.bot.play(1, 'fireflies')
     # await asyncio.sleep(2)
 
-    await runner.bot.play(1, 'ACDC - Back in Black')
-    await asyncio.sleep(1)
+    # await runner.bot.play(1, 'ACDC - Back in Black')
+    # await asyncio.sleep(1)
     
     # duplicate calls should have download updates all resolve at once
     # await runner.bot.play(0, 'fireflies')
