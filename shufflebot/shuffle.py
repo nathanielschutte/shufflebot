@@ -1,7 +1,5 @@
 
-# # # # # # # # # # # #
 # # # SHUFFLE BOT # # #
-# # # # # # # # # # # #
 
 # author: Nate
 # description:
