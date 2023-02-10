@@ -1,9 +1,15 @@
 
 # Run bot, catch dependency errors
 
-import os
+import os, sys
 import time
 from dotenv import load_dotenv
+
+verbose = '-v' in sys.argv
+
+def log(message):
+    if verbose:
+        print(message)
 
 def check_environment() -> None:
     print('Checking bot environment...')
@@ -14,9 +20,9 @@ def check_environment() -> None:
         assert os.path.isdir('storage'), 'cannot find dir "storage"'
         assert os.path.isdir('shufflebot'), 'cannot find dir "shufflebot"'
     except AssertionError as e:
-        print(f'Failed environment check: {e}')
+        log(f'Failed environment check: {e}')
 
-    print('Environment OK')
+    log('Environment OK')
 
 def main() -> int:
 
@@ -46,20 +52,20 @@ def main() -> int:
         
         # Better go and fix these
         except (AttributeError, SyntaxError, NameError) as e:
-            print(f'Code error: {e}')
+            log(f'Code error: {e}')
             break
 
         # Look for custom exceptions
         except Exception as e:
-            print(e.__class__.__name__)
+            log(e.__class__.__name__)
             if hasattr(e, '__module__') and e.__module__ == 'shufflebot.exceptions':
                 if e.__class__.__name__ == 'FormattedException':
-                    print(e.message)
+                    log(e.message)
                     break
                 else:
-                    print('Error type ' + e.__class__.__name__)
+                    log('Error type ' + e.__class__.__name__)
             else:
-                print(f'Unknown error: {e}')
+                log(f'Unknown error: {e}')
         
         # Dependency issue, try to upgrade pip with requirements.txt
         except ImportError:
@@ -81,10 +87,10 @@ def main() -> int:
                 keep_trying = False
 
             if tries >= max_tries:
-                print('Restarts exceeded, exiting...')
+                log('Restarts exceeded, exiting...')
                 break
             elif keep_trying and bot is not None:
-                print(f'Restarting in {retry_wait_time} seconds...')
+                log(f'Restarting in {retry_wait_time} seconds...')
                 time.sleep(retry_wait_time)
             else:
                 return code
@@ -93,4 +99,4 @@ def main() -> int:
     return -1
 
 if __name__ == '__main__':
-    print('ShuffleBot exited with code', main())
+    log('ShuffleBot exited with code', main())

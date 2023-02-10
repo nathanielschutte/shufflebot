@@ -74,7 +74,7 @@ class ConfigReader:
         pass
 
     # Get dict of all config values in group
-    def getGroup(self, group):
+    def get_group(self, group):
         if group in self.config:
             return self.config[group]
         else:

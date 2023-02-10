@@ -1,28 +1,16 @@
 
-1. Finish primary config settings, move config vars to config.py, add fallbacks
+0. Get and store event loop in bot controller
 
-2. Finish storage refactor and load into ShuffleBot
+1. Convert Player to async methods
 
-3. Connect bot from run.py
+2. Rewrite Cache
 
-4. Handle Exceptions in run.py
-    while tryagain
-        except FormattedError (example in MusicBot)
-        except ImportError
-            pip --upgrade -r requirements.txt
+3. Convert commands to create Player tasks
 
-5. Write downloader
-    Use library to get mp3s from search queries and links
 
-6. Connect !play -> downloader -> .mp3 in audiocache
-    Grab command author's voice channel
-    Check if link or search query
-        Link
-    Grab first youtube title -> use as key
-    Check name and see if its in audio cache
-        If not download it
-        If it is grab the mp3
-    Update cache keys
-    Play the mp3 in audio channel
 
-7. Write pip and git in run.py, add checks
+
+
+99. Write aliases
+
+100. Write pip and git in run.py, add checks

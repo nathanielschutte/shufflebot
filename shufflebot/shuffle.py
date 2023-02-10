@@ -7,14 +7,13 @@
 #   Server-stored playlists and tracks
 
 
-import os
+import os, sys
 from time import sleep
 import discord
-from discord import embeds
 from discord.ext import commands
 from dotenv import load_dotenv
 import asyncio
-from threading import Thread
+import logging
 
 from .cache import Cache
 
@@ -39,6 +38,8 @@ class ShuffleBot:
         config = Config(config_file)
         if config.use_aliases:
             self.aliases = Aliases(aliases_file)
+
+        self.log = logging.getLogger(__name__)
 
         # Server storage object
         self.storage = Storage()
@@ -193,6 +194,9 @@ class Shuffle(commands.Cog):
     async def __update_player_state(self, ctx, player: Player, state: PlayerState, text_channel_id: int) -> None:
         player.state = state
         await self.__update_windows(ctx, player, text_channel_id)
+
+    async def __player_status_change(self, player: Player):
+        self.__update_player_state
 
     # Commands
     # play

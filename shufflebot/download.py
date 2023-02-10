@@ -72,23 +72,23 @@ class Downloader:
                 except Exception as e:
                     raise DownloadException(e)
 
-    def download_url(self, url):
+    async def download_url(self, url):
         self.__download(url=url)
 
-    def download_query(self, query):
+    async def download_query(self, query):
         self.__download(query=query)
 
-    def download_video(self, string):
+    async def download_video(self, string):
         isUrl = self.__check_url_vs_query(string)
         if isUrl:
             self.__download(url=string)
         else:
             self.__download(query=string)
     
-    def __download(self, url=None, query=None) -> str:
+    async def __download(self, url=None, query=None) -> str:
         if url is not None:
             with youtube_dl.YoutubeDL(self.opts) as ydl:
-                ydl.download([url])
+                await ydl.download([url])
                 return
         elif query is not None:
             pass

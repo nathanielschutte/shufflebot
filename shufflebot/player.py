@@ -6,9 +6,11 @@
 #   Multiple message windows for each text channel using
 #   Each message window has same content
 
+import asyncio, traceback
 from enum import Enum
 
 from .download import Downloader
+from .events import Events
 
 # States of the Player
 class PlayerState(Enum):
@@ -19,26 +21,42 @@ class PlayerState(Enum):
 
 
 # Track name and downloaded flag
-Track = tuple[str, bool]
+Track = list[str, bool]
 
 class Player:
     """Holds audio playback info"""
 
-    def __init__(self, msg_id: int, text_channel_id: int, audiodir: str, voice_channel: str) -> None:
-        self.queue = []
-        self.current = None
+    def __init__(self, text_channel_id: int, msg_id: int, open_cb=None, screen_cb=None, close_cb=None) -> None:
+        self.queue: list[Track] = []
+        self.current: Track = None
 
-        # message ids for each text channel
+        # Message ids for each text channel
         self.msg_ids = {}
-        self.msg_ids[text_channel_id] = msg_id
+        if msg_id is not None:
+            self.msg_ids[text_channel_id] = msg_id
+        self.focus_msg = msg_id
 
-        # audio cache dir
-        self.audiodir = audiodir
+        # Window update events
+        self.player_events = Events()
+        self.player_events.on('open', open_cb)
+        self.player_events.on('status', screen_cb)
+        self.player_events.on('close', close_cb)
 
-        # window content
-        self.title = 'ShuffleBot'
-        self.voice_channel = voice_channel
+        # State stuff
         self.state: PlayerState = PlayerState.WAITING
+        self.connected = False
+        self.loaded_track = None
+        self.loaded_track_downloaded = False
+        self.exist = True
+        self.in_playback = False
+        
+        self.loop = asyncio.get_event_loop()
+
+
+    # Set the message ID for a text channel
+    def set_text_channel_msg(self, channel_id: int, msg_id: int) -> None:
+        self.msg_ids[channel_id] = msg_id
+        self.focus_msg = msg_id
     
     # Queue a song
     def push(self, track) -> None:
@@ -51,6 +69,10 @@ class Player:
 
             self.queue.append(track)
         # print(f'player: {self}')
+
+    async def queue(self, track):
+        pass
+        
 
     # Get next track title
     def pop(self) -> str:
