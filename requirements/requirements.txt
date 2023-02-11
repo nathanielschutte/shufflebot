@@ -1,0 +1,6 @@
+requests
+youtube-dl
+validators
+discord
+python-dotenv
+asyncio
