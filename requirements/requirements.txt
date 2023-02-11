@@ -4,3 +4,6 @@ validators
 discord
 python-dotenv
 asyncio
+mypy
+mysql-connector-python
+pynacl

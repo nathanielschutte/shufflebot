@@ -1,4 +1,6 @@
 downloads
+db
 .env
 out.log
 .venv
+.DS_Store

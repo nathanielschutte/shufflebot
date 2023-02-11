@@ -1,0 +1,17 @@
+version: '3'
+services:
+  db:
+    image: mysql:8.0
+    container_name: shuffle-db
+    environment:
+      - MYSQL_DATABASE=shuffle
+      - MYSQL_USER=shuffle
+      - MYSQL_PASSWORD=shuffle
+      - MYSQL_ALLOW_EMPTY_PASSWORD=true
+    volumes:
+      - ./db:/var/lib/sqlite
+    ports:
+      - 3306:3306
+  bot:
+    image: shuffle:latest
+    container_name: shuffle-bot
