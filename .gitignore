@@ -4,3 +4,6 @@ db
 out.log
 .venv
 .DS_Store
+tree
+__pycache__
+files
