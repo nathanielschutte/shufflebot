@@ -9,6 +9,7 @@ from discord.ext import commands
 from typing import Dict
 
 from shuffle.player.player import Player
+from shuffle.constants import GOD_IDS
 
 class ShuffleBot(commands.Cog):
     def __init__(self, bot: commands.Bot, logger: logging.Logger, env: str = 'dev'):
@@ -19,101 +20,174 @@ class ShuffleBot(commands.Cog):
 
         self._env = env
         self._update_config()
-        self.logger.debug(f'Loaded config: {self._env}')
+        self.logger.debug(f'Loaded config: {self._env}, prefix: {self.config["prefix"]}')
 
-    def get_player(self, guild_id: int) -> Player:
-        if guild_id not in self.players:
-            self.players[guild_id] = Player(guild_id, self.config)
-        return self.players[guild_id]
+        commands_file = f'shuffle/shuffle.json'
+        if not os.path.isfile(commands_file):
+            raise Exception(f'Commands file not found: {commands_file}')
+        self.commands_file = commands_file
+
+        try:
+            with open(commands_file, 'r') as file:
+                self.commands = json.loads(file.read())
+        except Exception as e:
+            raise Exception(f'Commands file not parseable: {commands_file} [{str(e)}]')
+
+        self.helper = ShuffleHelp(commands=self.commands)
+
+        self.logger.debug('Done creating ShuffleBot')
+
 
     @commands.Cog.listener()
     async def on_ready(self):
-        await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=f'-help'))
+        await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=f'{self.config["prefix"]}help'))
         self.logger.info('Bot is ready')
 
-    @commands.command()
-    async def ping(self, ctx):
-        await ctx.send('pong')
 
-    @commands.command()
-    async def test(self, ctx):
-        voice = None
-        for vc in self.bot.voice_clients:
-            if vc.channel.id == ctx.author.text.channel.id:
-                self.logger.debug(f'bot already connected to the channel! {ctx.author.text.channel.id}')
-                voice = vc.channel
-        if voice is None:
-            voice = await ctx.author.voice.channel.connect()
-        self.logger.debug(f'Connected')
-        self.logger.debug(f'Found {os.path.isfile("./files/edwk-8KJ1Js.mp3")}')
-        voice.play(discord.FFmpegPCMAudio(source='./files/edwk-8KJ1Js.mp3', executable='ffmpeg'))
-        self.logger.debug(f'Started playing')
-        play_counter = 0
-        while voice.is_playing():
-            await asyncio.sleep(1)
-            play_counter += 1
-            if play_counter > 60:
-                self.log.error(f'Track timeout out after 60 seconds')
+    @commands.Cog.listener()
+    async def on_message(self, msg: discord.Message):
+        content = msg.content.strip()
+
+        if not content[0] == self.config['prefix']:
+            return
+
+        command_parts = content[1:].split()
+        command = command_parts[0]
+        args = command_parts[1:]
+
+        # check for aliases
+        for cmd, data in self.commands.items():
+            if 'aliases' in data and command in data['aliases']:
+                command = cmd
                 break
-        self.logger.debug(f'Done playing')
-        await voice.disconnect()
+
+        # check for declared command
+        if command in self.commands:
+
+            # command disabled
+            if 'disabled' in self.commands[command] and self.commands[command]['disabled'] == 1:
+                return
+
+            # admin
+            if 'permission' in self.commands[command] \
+                and len(self.commands[command]['permission']) > 0 \
+                and self.commands[command]['permission'].lower() != 'any':
+                perm_tag = self.commands[command]['permission'].lower()
+
+                # need to set up admin permissions....right now just me
+                if perm_tag == 'admin' and str(msg.author.id) not in GOD_IDS:
+                    await msg.channel.send(f'You are not authorized to run command `{command}`')
+                    return
+
+            # self.logger.debug(f'user {msg.author.display_name} called on: \'{command}\'')
+
+            method_name = command
+
+            if 'function' in self.commands[command]:
+                method_name = self.commands[command]['function']
+
+            if hasattr(self, method_name):
+                method = getattr(self, method_name)
+                if asyncio.iscoroutinefunction(method):
+
+                    # check arg minimum requirement
+                    if 'argmin' in self.commands[command] and len(args) < self.commands[command]['argmin']:
+                        if 'usage' in self.commands[command]:
+                            await msg.channel.send(f'Usage: `{self.config["prefix"]}{command} {self.commands[command]["usage"]}`')
+                        return
+                    
+                    self.logger.debug(f'Executing: \'{command}({" ".join(args)})\'')
+                    player = self._get_player(msg.guild.id)
+                    asyncio.get_event_loop().create_task(method(msg, player, *args))
+                else:
+                    self.logger.error(f'function not coroutine for command: {command}')
+            else:
+                self.logger.error(f'could not find function to call for command: {command}')
+
+
+
+        #self.logger.debug(f'got message: {msg.content.strip()}')
+
+
+    # Test command
+    async def ping(self, ctx: discord.Message, _):
+        self.logger.debug('ping received')
+        await ctx.channel.send('pong')
+
 
     # Play a song, or queue it if already playing a song
     # This should also 'resume' if paused
-    @commands.command()
-    async def play(self, ctx, *args):
-
+    async def play(self, ctx: discord.Message, player: Player, *args):
         # TODO: create common argument parsers/validators/filters/converters/consumers
         query = ' '.join(args).strip()
+        query = query[:min(len(query), 100)]
         if query == '':
-            await ctx.send('No song provided. Please try `!play <song>`')
+            await ctx.channel.send('No song provided. Please try `!play <song>`')
             return
 
-        await self.get_player(ctx.guild.id).enqueue(query, self._get_voice_channel(ctx))
+        self.logger.debug(f'Searching for query: {query}')   
 
+        message = await ctx.channel.send(f'Searching for `{query}` ...')
+        track = await player.enqueue(query, self._get_voice_channel(ctx))
+        position = player.queue.length
+
+        if position > 0:
+            await message.edit(content=f'Queued `{track.title}` at position {position}')
+        else:
+            await message.edit(content=f'Playing `{track.title}`')
     
+
     # Stop playback if currently playing
-    @commands.command()
-    async def stop(self, ctx):
-        ...
+    async def stop(self, ctx, player, *args):
+        await player.stop()
 
     # Pause playback if currently playing
-    @commands.command()
-    async def pause(self, ctx):
+    async def pause(self, ctx, player, *args):
         ...
 
     # Resume playback if currently paused
-    @commands.command()
-    async def resume(self, ctx):
+    async def resume(self, ctx, player, *args):
         ...
 
     # SKip the current song
     # Optional: provide an index or song name to skip to
-    @commands.command()
-    async def skip(self, ctx):
-        ...
+    async def skip(self, ctx, player, *args):
+        result = await player.skip()
+        if result == -1:
+            await ctx.channel.send('The queue is empty!')
+        elif isinstance(result, int):
+            await ctx.channel.send(f'Skipping current song, {result+1} songs left in the queue')
 
     # View the queue
-    @commands.command()
-    async def list(self, ctx):
-        ...
+    async def list(self, ctx, player: Player, *args):
+        current_track = '_none_'
+        if player.queue.is_playing:
+            current_track = f'*{player.queue.current.title}*'
 
+        desc = [f'{i+1}: {t.title}' for i, t in enumerate(player.list())]
+        if len(desc) == 0:
+            desc = '_none_'
+        else:
+            desc = '\n'.join(desc)
+
+        embed = discord.Embed()
+        embed.add_field(name='Current', value=current_track, inline=False)
+        embed.add_field(name='Queue', value=desc, inline=False)
+        await ctx.channel.send(embed=embed)
+
+    # ADMIN COMMANDS
     # Empty the queue
-    @commands.command()
     async def clear(self, ctx):
         ...
 
-    # ADMIN COMMANDS
-    # Reload configuration for this guild
-    @commands.command()
-    async def reload(self, ctx):
-        ...
 
-    # Clean files for this guild
-    @commands.command()
-    async def clean(self, ctx):
-        ...
+    
+    async def help(self, msg: discord.Message, player, *args):
+        await self.helper.send_bot_help(msg.channel, self.config['prefix'])
 
+
+
+    # Get command author's voice channel, if it exists
     def _get_voice_channel(self, ctx):
         target = ctx.author
         if target.voice != None and target.voice.channel != None:
@@ -123,8 +197,56 @@ class ShuffleBot(commands.Cog):
             self.logger.info(f'No voice channel for target {target.display_name}')
             return None
         
-
     # Update guild based on guild configuration in database
     def _update_config(self):
         with open(f'config/{self._env}.json', 'r') as f:
             self.config = json.load(f)
+
+    def _get_player(self, guild_id: int) -> Player:
+        if guild_id not in self.players:
+            self.players[guild_id] = Player(guild_id, self.config, self.bot)
+        return self.players[guild_id]
+
+
+class ShuffleHelp(commands.HelpCommand):
+    '''Bot commands help'''
+
+    def __init__(self, commands):
+        super().__init__()
+
+        self.commands = commands
+        
+
+    async def send_bot_help(self, channel, prefix):
+        embed = discord.Embed(title=f'Shuffle help:')
+        for cmd_name, cmd in self.commands.items():
+
+            # skip commands that have a permission besides 'any', or are disabled
+            if 'permission' in cmd and cmd['permission'].lower() != 'any':
+                continue
+
+            if 'disabled' in cmd and cmd['disabled'] == 1:
+                continue
+
+            if 'desc' not in cmd:
+                cmd['desc'] = ''
+            if 'usage' not in cmd:
+                cmd['usage'] = ''
+
+            cmdstr = f'{cmd["desc"]}\n`{prefix}{cmd_name} {cmd["usage"]}`'
+            embed.add_field(name=f'{cmd_name}:', value=cmdstr, inline=False)
+            
+        await channel.send(embed=embed)
+
+
+    async def send_cog_help(self, cog):
+        return await super().send_cog_help(cog)
+
+
+    async def send_group_help(self, group):
+        return await super().send_group_help(group)
+
+
+    async def send_command_help(self, command):
+        return await super().send_command_help(command)
+

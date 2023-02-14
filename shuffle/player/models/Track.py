@@ -8,7 +8,8 @@ class Track:
     id: str
     title: str
     query: str
-    url: str
+    web_url: str
+    audio_url: str
     channel: Any = None
     duration: int = -1
     source: str = 'youtube'

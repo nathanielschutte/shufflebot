@@ -1,3 +1,4 @@
 {
-    "download_path": "./files"
+    "download_path": "./files",
+    "prefix": "%"
 }

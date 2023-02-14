@@ -10,13 +10,13 @@ from shuffle.log import shuffle_logger
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-CONFIG_FILE = 'config.ini'
 
 # TODO: reduce intents to only those needed if possible
 intents = discord.Intents.all()
 
 # TODO: remove and parse prefix in the bot using guild config
-bot = commands.Bot(command_prefix='-', intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+bot.remove_command('help')
 
 logger = shuffle_logger()
 shuffle_env = os.getenv('SHUFFLE_ENV', 'dev')

@@ -17,7 +17,7 @@ class Downloader:
         self.savedir = 'db/audio'
         self._raw_opts = {
             'outtmpl': self.savedir + '%(title)s.%(ext)s',
-            'format': 'worstaudio/worst',
+            'format': 'bestaudio/best',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
@@ -48,5 +48,4 @@ class Downloader:
         url = result['webpage_url']
         self.logger.debug(f'Got URL {url} (id={result["id"]})')
 
-        return Track(result['id'], result["title"], query, url)
-
+        return Track(id=result['id'], title=result["title"], query=query, web_url=url, audio_url=result['formats'][0]['url'])

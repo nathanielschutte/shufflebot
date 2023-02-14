@@ -1,0 +1,45 @@
+{
+    "play": {
+        "function": "play",
+        "argmin": 0,
+        "aliases": ["p"],
+        "desc": "play a song",
+        "usage": "[song]",
+        "permission": "any"
+    },
+    "stop": {
+        "argmin": 0,
+        "aliases": ["kill"],
+        "desc": "stop playback",
+        "usage": ""
+    },
+    "skip": {
+        "argmin": 0,
+        "aliases": ["s"],
+        "desc": "skip to next song in queue",
+        "usage": "",
+        "disabled": 0
+    },
+    "list": {
+        "argmin": 0,
+        "aliases": ["soundlist"],
+        "desc": "list all existing sounds for this server",
+        "usage": ""
+    },
+    "ping": {
+        "argmin": 0,
+        "desc": "ping pong",
+        "usage": "",
+        "permission": "admin"
+    },
+    "clear": {
+        "argmin": 0,
+        "desc": "clear the queue",
+        "usage": "",
+        "permission": "admin"
+    },
+    "help": {
+        "desc": "this message",
+        "usage": ""
+    }
+}

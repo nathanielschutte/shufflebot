@@ -21,7 +21,7 @@ class Queue:
 
         # return self.current.status == 'playing'
 
-        return False
+        return True
 
         # TODO: Check if the current track is playing
 
@@ -40,6 +40,9 @@ class Queue:
         track = self.queue.pop(0)
         self.current = track
         return track
+
+    def __len__(self) -> int:
+        return len(self.queue)
 
     def __repr__(self) -> str:
         return f'Queue[tracks={self.length}, current={self.current}]'

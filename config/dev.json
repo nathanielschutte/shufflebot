@@ -1,3 +1,4 @@
 {
-    "download_path": "/var/lib/shuffle/files"
+    "download_path": "/var/lib/shuffle/files",
+    "prefix": "-"
 }
