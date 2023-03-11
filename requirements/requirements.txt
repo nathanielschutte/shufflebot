@@ -1,5 +1,5 @@
 requests
-youtube-dl
+/app/lib/youtube-dl
 validators
 discord
 python-dotenv

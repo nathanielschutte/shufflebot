@@ -46,6 +46,6 @@ class Downloader:
             # self.logger.debug(f'Got result: {result["title"]} {result["id"]} {result["webpage_url"]}')
             
         url = result['webpage_url']
-        self.logger.debug(f'Got URL {url} (id={result["id"]})')
+        self.logger.info(f'Got URL {url} (title={result["title"]}, id={result["id"]})')
 
         return Track(id=result['id'], title=result["title"], query=query, web_url=url, audio_url=result['formats'][0]['url'])

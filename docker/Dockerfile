@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /var/log/shuffle
 RUN mkdir -p /var/lib/shuffle
 
+COPY lib /app/lib
 COPY requirements /app/requirements
 RUN pip install -r /app/requirements/requirements.txt
 
@@ -15,5 +16,7 @@ COPY .env /app/.env
 COPY config /app/config
 
 WORKDIR /app
+
+ENTRYPOINT [ "sh", "docker-entrypoint.sh" ]
 
 CMD ["python", "bot.py"]

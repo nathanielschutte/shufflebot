@@ -34,6 +34,6 @@ try:
 except KeyboardInterrupt:
     logger.info('Keyboard interrupt received, stopping bot')
     exit(0)
-# except Exception as e:
-#     logger.error(f'[uncaught error] {str(e)}')
-#     exit(1)
+except Exception as e:
+    logger.error(f'[uncaught error] {str(e)}')
+    exit(1)

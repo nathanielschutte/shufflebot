@@ -32,7 +32,7 @@ class Player:
 
 
     async def _play(self, track: Track) -> None:
-        self.log.debug(f'Playing {track.title} [{track.web_url}]')
+        self.log.info(f'Playing {track.title} [{track.web_url}]')
 
         voice = None
 
@@ -127,13 +127,13 @@ class Player:
             self.client[0].stop()
 
             if not self.queue.is_empty:
-                self.log.debug(f'Queue is nonempty, skipping to the next song...')
+                self.log.info(f'Queue is nonempty, skipping to the next song...')
                 self.state = 'playing'
                 asyncio.get_event_loop().create_task(self._play(self.queue.pop()))
                 
                 return len(self.queue)
             else:
-                self.log.debug(f'Queue is empty')
+                self.log.info(f'Queue is empty')
                 self.queue.current = None
                 await self.client[0].disconnect()
                 self.client = None
