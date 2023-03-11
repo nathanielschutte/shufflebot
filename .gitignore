@@ -7,3 +7,4 @@ out.log
 tree
 __pycache__
 files
+log/

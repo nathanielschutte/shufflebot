@@ -6,15 +6,19 @@ PROJECT_NAME=shuffle
 
 .env:
 	cp .env.example .env
-	sed 's/DISCORD_BOT_TOKEN=/DISCORD_BOT_TOKEN=$(DISCORD_BOT_TOKEN)/g' .env > .env
+	@sed -i 's/DISCORD_BOT_TOKEN=/DISCORD_BOT_TOKEN=$(DISCORD_BOT_TOKEN)/g' .env
 
 build: .env
 	docker build -t $(PROJECT_NAME):latest --target shuffle --file docker/Dockerfile .
 
 run: build
-	docker run -d -v $(LOG_DIR):/var/log/shuffle --rm $(PROJECT_NAME):latest
+	docker run -d --rm \
+		-v $(LOG_DIR):/var/log/shuffle \
+		--name "$(PROJECT_NAME)-run"
+		$(PROJECT_NAME):latest
 
-run-dev: build
+run-dev:
+	@echo "mounting on $(PWD)"
 	docker run -it --rm \
 		-v $(PWD)/log/shuffle:/var/log/shuffle \
 		-v $(LOG) $(PWD)/shuffle:/app/shuffle \

@@ -1,2 +1,4 @@
 .github
 .git
+.mypy_cache
+__pycache__
