@@ -14,6 +14,7 @@ COPY bot.py /app/bot.py
 COPY shuffle /app/shuffle
 COPY .env /app/.env
 COPY config /app/config
+COPY docker/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 WORKDIR /app
 
