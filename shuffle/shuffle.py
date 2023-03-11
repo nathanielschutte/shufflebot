@@ -97,6 +97,11 @@ class ShuffleBot(commands.Cog):
                         return
                     
                     self.logger.debug(f'Executing: \'{command}({" ".join(args)})\'')
+
+                    if msg.guild is None:
+                        self.logger.error(f'No guild ID found in message context!')
+
+                    assert msg.guild is not None
                     player = self._get_player(msg.guild.id)
                     asyncio.get_event_loop().create_task(method(msg, player, *args))
                 else:
@@ -162,17 +167,19 @@ class ShuffleBot(commands.Cog):
     async def list(self, ctx, player: Player, *args):
         current_track = '_none_'
         if player.queue.is_playing:
+
+            assert player.queue.current is not None
             current_track = f'*{player.queue.current.title}*'
 
         desc = [f'{i+1}: {t.title}' for i, t in enumerate(player.list())]
         if len(desc) == 0:
-            desc = '_none_'
-        else:
-            desc = '\n'.join(desc)
+            desc = ['_none_']
+            
+        desc_str = '\n'.join(desc)
 
         embed = discord.Embed()
         embed.add_field(name='Current', value=current_track, inline=False)
-        embed.add_field(name='Queue', value=desc, inline=False)
+        embed.add_field(name='Queue', value=desc_str, inline=False)
         await ctx.channel.send(embed=embed)
 
     # ADMIN COMMANDS

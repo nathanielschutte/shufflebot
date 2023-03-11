@@ -4,7 +4,7 @@ import logging
 from typing import List, Callable
 from dataclasses import dataclass
 
-import youtube_dl
+import youtube_dl # type: ignore
 
 from shuffle.log import shuffle_logger
 from shuffle.player.models.Track import Track

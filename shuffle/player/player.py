@@ -5,7 +5,7 @@ import asyncio
 import os
 import discord
 
-from typing import Any
+from typing import Any, Optional, Tuple, List
 
 from shuffle.log import shuffle_logger
 
@@ -25,7 +25,7 @@ class Player:
 
         self.state = 'idle'
 
-        self.client = None
+        self.client: Optional[List[Any]] = None
 
         self.log = shuffle_logger(f'player [{self.guild.id}]')
         self.log.info(f'Created player for {self.guild} with queue {self.queue}')
@@ -49,12 +49,12 @@ class Player:
         # Need a new voice client
         if voice is None:
             voice = await track.channel.connect()
-            self.client = voice, track.channel.id
+            self.client = [voice, track.channel.id]
 
         assert voice is not None
         
         FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
-        voice.play(discord.FFmpegPCMAudio(track.audio_url, **FFMPEG_OPTIONS))
+        voice.play(discord.FFmpegPCMAudio(track.audio_url, **FFMPEG_OPTIONS)) # type: ignore
         
         play_counter = 0
         while voice.is_connected() and voice.is_playing():
@@ -121,7 +121,7 @@ class Player:
     
     async def skip(self) -> int:
         if self.client is None:
-            return
+            return 0
 
         if self.client[0].is_connected() and self.client[0].is_playing():
             self.client[0].stop()
@@ -140,10 +140,10 @@ class Player:
 
                 return -1
 
-        return None
+        return -1
 
     
-    def list(self) -> None:
+    def list(self) -> List[Track]:
         return self.queue.queue
 
     
