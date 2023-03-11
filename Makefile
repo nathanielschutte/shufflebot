@@ -2,11 +2,14 @@
 LOG_DIR=/var/log/shuffle
 PROJECT_NAME=shuffle
 
-.PHONY: all build run run-dev deploy
+.PHONY: all build run run-dev deploy test
 
 .env:
 	cp .env.example .env
 	@sed -i 's/DISCORD_BOT_TOKEN=/DISCORD_BOT_TOKEN=$(DISCORD_BOT_TOKEN)/g' .env
+
+test:
+	mypy shuffle
 
 build: .env
 	docker build -t $(PROJECT_NAME):latest --target shuffle --file docker/Dockerfile .
