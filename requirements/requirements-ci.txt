@@ -1,0 +1,6 @@
+asyncio
+mypy
+requests
+discord
+validators
+python-dotenv
