@@ -8,3 +8,4 @@ tree
 __pycache__
 files
 log/
+.mypy_cache
