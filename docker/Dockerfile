@@ -8,7 +8,7 @@ RUN mkdir -p /var/lib/shuffle
 
 COPY lib /app/lib
 COPY requirements /app/requirements
-RUN pip install -r /app/requirements/requirements.txt
+RUN pip install -r /app/requirements/requirements-docker.txt
 
 COPY bot.py /app/bot.py
 COPY shuffle /app/shuffle

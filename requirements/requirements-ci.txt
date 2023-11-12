@@ -4,3 +4,4 @@ requests
 discord
 validators
 python-dotenv
+spotipy

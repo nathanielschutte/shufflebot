@@ -11,6 +11,10 @@ from typing import Dict
 from shuffle.player.player import Player
 from shuffle.constants import GOD_IDS
 
+
+class ShuffleRebootException(Exception):
+    ...
+
 class ShuffleBot(commands.Cog):
     def __init__(self, bot: commands.Bot, logger: logging.Logger, env: str = 'dev'):
         self.bot = bot
@@ -119,6 +123,9 @@ class ShuffleBot(commands.Cog):
         self.logger.debug('ping received')
         await ctx.channel.send('pong')
 
+    async def restart(self, ctx: discord.Message, _):
+        await ctx.channel.send('Rebooting the bot...')
+        raise ShuffleRebootException
 
     # Play a song, or queue it if already playing a song
     # This should also 'resume' if paused

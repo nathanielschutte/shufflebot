@@ -9,7 +9,8 @@ from typing import Any, Optional, Tuple, List
 
 from shuffle.log import shuffle_logger
 
-from shuffle.player.youtube import Downloader
+from shuffle.player.youtube import YoutubeStream
+from shuffle.player.spotify import SpotifyStream
 
 from shuffle.player.models.Queue import Queue
 from shuffle.player.models.Guild import Guild
@@ -19,7 +20,10 @@ class Player:
     def __init__(self, guild_id: int, config: dict, bot: Any) -> None:
         self.guild = Guild(guild_id)
         self.queue = Queue()
-        self.downloader = Downloader()
+        self.streams = {
+            'youtube': YoutubeStream(),
+            'spotify': SpotifyStream()
+        }
         self.config = config
         self.bot = bot
 
@@ -79,14 +83,21 @@ class Player:
         
     
     async def enqueue(self, query: str, channel: Any) -> Track:
-        track = await asyncio.get_event_loop().run_in_executor(None, lambda: self.downloader.get_track(query))
+        selected_stream_driver = 'youtube'
+        stream = self.streams[selected_stream_driver]
+
+        if not stream.is_ready():
+            self.log.error(f'Stream \'{selected_stream_driver}\' is not ready')
+            return
+
+        track = await asyncio.get_event_loop().run_in_executor(None, lambda: stream.get_track(query))
         track.channel = channel
         self.queue.enqueue(track)
         self.log.debug(f'Enqueued {track}')
 
         # if not self._check_for_file(track.id):
         #     self.log.debug(f'Downloading {track.id}')
-        #     await asyncio.get_event_loop().run_in_executor(None, lambda: self.downloader.download(track.id, self._get_track_file(track.id)))
+        #     await asyncio.get_event_loop().run_in_executor(None, lambda: stream.download(track.id, self._get_track_file(track.id)))
         # else:
         #     self.log.debug(f'Already downloaded {track.id}')
 

@@ -8,11 +8,13 @@ import youtube_dl # type: ignore
 
 from shuffle.log import shuffle_logger
 from shuffle.player.models.Track import Track
+from shuffle.player.stream import Stream
 
-class Downloader:
-    def __init__(self) -> None:
-        
-        self.logger = shuffle_logger('downloader')
+class YoutubeStream(Stream):
+    def __init__(self, guild_id: int) -> None:
+        super().__init__(guild_id)
+
+        self.logger = shuffle_logger('youtube')
         
         self.savedir = 'db/audio'
         self._raw_opts = {
@@ -49,3 +51,6 @@ class Downloader:
         self.logger.info(f'Got URL {url} (title={result["title"]}, id={result["id"]})')
 
         return Track(id=result['id'], title=result["title"], query=query, web_url=url, audio_url=result['formats'][0]['url'])
+
+    def is_ready(self) -> bool:
+        return True

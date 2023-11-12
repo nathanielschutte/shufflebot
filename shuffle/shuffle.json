@@ -1,4 +1,11 @@
 {
+    "restart": {
+        "function": "restart",
+        "argmin": 0,
+        "aliases": ["reboot"],
+        "desc": "reboot the bot",
+        "permission": "admin"
+    },
     "play": {
         "function": "play",
         "argmin": 0,

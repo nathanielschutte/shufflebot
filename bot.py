@@ -4,6 +4,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 import os
 import asyncio
+import time
 
 from shuffle import shuffle
 from shuffle.log import shuffle_logger
@@ -29,11 +30,15 @@ async def bot_create():
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
-try:
-    loop.run_until_complete(bot_create())
-except KeyboardInterrupt:
-    logger.info('Keyboard interrupt received, stopping bot')
-    exit(0)
-except Exception as e:
-    logger.error(f'[uncaught error] {str(e)}')
-    exit(1)
+while True:
+    try:
+        loop.run_until_complete(bot_create())
+    except KeyboardInterrupt:
+        logger.info('Keyboard interrupt received, stopping bot')
+        exit(0)
+    except shuffle.ShuffleRebootException:
+        logger.info('Received a reboot signal. Rebooting the bot...')
+        time.sleep(2)
+    except Exception as e:
+        logger.error(f'[uncaught error] {str(e)}')
+        exit(1)
