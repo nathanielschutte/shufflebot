@@ -218,6 +218,7 @@ class ShuffleBot(commands.Cog):
 
     def _get_player(self, guild_id: int) -> Player:
         if guild_id not in self.players:
+            self.logger.debug(f'Creating player for guild {guild_id}')
             self.players[guild_id] = Player(guild_id, self.config, self.bot)
         return self.players[guild_id]
 

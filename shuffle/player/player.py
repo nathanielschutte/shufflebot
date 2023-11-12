@@ -21,8 +21,8 @@ class Player:
         self.guild = Guild(guild_id)
         self.queue = Queue()
         self.streams = {
-            'youtube': YoutubeStream(),
-            'spotify': SpotifyStream()
+            'youtube': YoutubeStream(guild_id),
+            'spotify': SpotifyStream(guild_id)
         }
         self.config = config
         self.bot = bot
