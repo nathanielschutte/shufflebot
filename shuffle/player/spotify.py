@@ -25,9 +25,14 @@ class SpotifyStream(Stream):
         if self.guild_id not in [486252937354543104]:
             raise NotImplementedError('Spotify is only supported for whitelisted servers')
 
+        print(f'Using redirect url: {self.redirect_url}')
+
         oauth_object = spotipy.SpotifyOAuth(self.client_id, self.client_secret, self.redirect_url) 
         token_dict = oauth_object.get_access_token() 
-        token = token_dict['access_token'] 
+
+        print(f'Got token: {token_dict}')
+        
+        token = token_dict['access_token']
         spotify = spotipy.Spotify(auth=token)
         user_name = spotify.current_user()
 
