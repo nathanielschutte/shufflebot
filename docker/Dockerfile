@@ -15,7 +15,6 @@ RUN apt-get update && apt-get install -y \
     && apt-get remove -y ffmpeg \
     && apt-get clean
 
-# Install a newer version of FFmpeg from source with SSL support
 RUN cd /tmp && \
     wget -O ffmpeg.tar.bz2 https://ffmpeg.org/releases/ffmpeg-4.4.tar.bz2 && \
     tar xjf ffmpeg.tar.bz2 && \
@@ -37,11 +36,9 @@ RUN cd /tmp && \
     rm -rf ffmpeg* && \
     ldconfig
 
-# Set environment variables
 ENV MALLOC_ARENA_MAX=2
 ENV LD_LIBRARY_PATH=/usr/local/lib
 
-# Increase process limits
 RUN echo "* soft nofile 1048576" >> /etc/security/limits.conf && \
     echo "* hard nofile 1048576" >> /etc/security/limits.conf
 
@@ -51,6 +48,8 @@ RUN mkdir -p /var/lib/shuffle
 COPY lib /app/lib
 COPY requirements /app/requirements
 RUN pip install -r /app/requirements/requirements-docker.txt
+
+RUN pip install selenium undetected-chromedriver pytube
 
 COPY bot.py /app/bot.py
 COPY shuffle /app/shuffle

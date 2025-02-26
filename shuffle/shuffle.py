@@ -54,21 +54,18 @@ class ShuffleBot(commands.Cog):
         try:
             content = msg.content.strip()
 
-            # Safe check for empty messages or non-command messages
             if not content or content[0] != self.config['prefix']:
                 return
 
             command_parts = content[1:].split()
-            if not command_parts:  # Handle case where message is just the prefix
+            if not command_parts:
                 return
                 
             command = command_parts[0]
             args = command_parts[1:]
 
-            # Log the received command for debugging
             self.logger.debug(f"Command received: {command} with args: {args} from user: {msg.author.name}")
 
-            # check for aliases
             for cmd, data in self.commands.items():
                 if 'aliases' in data and command in data['aliases']:
                     command = cmd
@@ -192,6 +189,7 @@ class ShuffleBot(commands.Cog):
                 await message.edit(content=f'Playing `{track.title}`')
         except Exception as e:
             self.logger.error(f"Error playing {query}: {str(e)}")
+            self.logger.error(traceback.format_exc())
             await message.edit(content=f"Error playing `{query}`, contact admin")
 
 

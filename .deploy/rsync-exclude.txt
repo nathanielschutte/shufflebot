@@ -2,3 +2,6 @@
 .git
 .mypy_cache
 __pycache__
+.deploy
+.env
+lib/youtube-dl

@@ -7,7 +7,7 @@ if ! ssh $REMOTE_HOST "sudo mkdir -p $REMOTE_PATH && sudo chown $REMOTE_USER.$RE
     exit 1
 fi
 
-if ! rsync -vz --exclude-from=.deploy/rsync-exclude.txt . $REMOTE_HOST:$REMOTE_PATH; then
+if ! rsync -rvz --exclude-from=.deploy/rsync-exclude.txt . $REMOTE_HOST:$REMOTE_PATH; then
     echo "Error rsyncing files"
     exit 1
 fi

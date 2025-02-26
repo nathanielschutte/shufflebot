@@ -138,6 +138,10 @@ class Player:
             return None
 
         track = await asyncio.get_event_loop().run_in_executor(None, lambda: stream.get_track(query))
+        if track is None:
+            self.log.error(f'Failed to get track for query: {query}')
+            raise Exception('Failed to get track URL')
+            
         track.channel = channel
         self.queue.enqueue(track)
         self.log.debug(f'Enqueued {track}')
