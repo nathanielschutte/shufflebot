@@ -1,5 +1,4 @@
-
-# Player for a single guild
+# Update to Player class in shuffle/player/player.py to add resume functionality
 
 import asyncio
 import os
@@ -22,14 +21,16 @@ class Player:
         self.queue = Queue()
         self.streams = {
             'youtube': YoutubeStream(guild_id),
-            'spotify': SpotifyStream(guild_id)
+            # 'spotify': SpotifyStream(guild_id)
         }
         self.config = config
         self.bot = bot
 
-        self.state = 'idle'
+        self.state = 'idle'  # 'idle', 'playing', 'paused', 'stopped'
 
         self.client: Optional[List[Any]] = None
+        # Track we were playing when paused - store it to enable resume
+        self.paused_track: Optional[Track] = None 
 
         self.log = shuffle_logger(f'player [{self.guild.id}]')
         self.log.info(f'Created player for {self.guild} with queue {self.queue}')
@@ -57,9 +58,54 @@ class Player:
 
         assert voice is not None
         
-        FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
-        voice.play(discord.FFmpegPCMAudio(track.audio_url, **FFMPEG_OPTIONS)) # type: ignore
+        # More robust FFMPEG options with extensive error handling and reconnection capabilities
+        FFMPEG_OPTIONS = {
+            'before_options': '-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 15 -timeout 10000000',
+            'options': '-vn -dn -sn -threads 4 -af "volume=0.5"'
+        }
         
+        self.log.debug(f'Attempting to play with audio URL: {track.audio_url[:100]}...')
+        
+        try:
+            self.log.debug("Creating FFmpegPCMAudio instance...")
+            audio_source = discord.FFmpegPCMAudio(track.audio_url, **FFMPEG_OPTIONS)
+            self.log.debug("Created FFmpegPCMAudio instance successfully")
+            
+            # Add a volume transformer to prevent potential clipping/distortion
+            audio_source = discord.PCMVolumeTransformer(audio_source, volume=0.5)
+            
+            self.log.debug("Starting playback...")
+            voice.play(audio_source)
+            self.log.debug("Playback started successfully")
+            self.state = 'playing'
+        except Exception as e:
+            self.log.error(f'Error in playback: {str(e)}')
+            # Try with simplified options as a fallback
+            try:
+                self.log.info(f'Attempting fallback with simplified options')
+                FALLBACK_OPTIONS = {
+                    'before_options': '-reconnect 1 -reconnect_streamed 1',
+                    'options': '-vn'
+                }
+                audio_source = discord.FFmpegPCMAudio(track.audio_url, **FALLBACK_OPTIONS)
+                voice.play(audio_source)
+                self.log.debug("Fallback playback started successfully")
+                self.state = 'playing'
+            except Exception as e2:
+                self.log.error(f'Fallback also failed: {str(e2)}')
+                self.queue.current = None
+                self.paused_track = None
+                if not self.queue.is_empty and self.state != 'stopped':
+                    self.log.debug(f'Skipping problematic track, trying next song...')
+                    asyncio.get_event_loop().create_task(self._play(self.queue.pop()))
+                    return
+                else:
+                    self.log.debug(f'No more tracks to play, disconnecting')
+                    self.state = 'idle'
+                    await voice.disconnect()
+                    self.client = None
+                    return
+    
         play_counter = 0
         while voice.is_connected() and voice.is_playing():
             await asyncio.sleep(1)
@@ -69,18 +115,19 @@ class Player:
                 break
         self.log.debug(f'Done playing {track.title} [{track.web_url}]')
 
-        if not voice.is_connected():
-            self.queue.current = None
-            self.client = None
+        # If we disconnected or the bot was stopped, don't continue with the queue
+        if not voice.is_connected() or self.state == 'stopped' or self.state == 'paused':
+            return
 
         if not self.queue.is_empty and self.state == 'playing':
             self.log.debug(f'Queue is nonempty, playing next song...')
             asyncio.get_event_loop().create_task(self._play(self.queue.pop()))
         else:
             self.queue.current = None
+            self.paused_track = None
+            self.state = 'idle'
             await voice.disconnect()
             self.client = None
-        
     
     async def enqueue(self, query: str, channel: Any) -> Track:
         selected_stream_driver = 'youtube'
@@ -88,24 +135,14 @@ class Player:
 
         if not stream.is_ready():
             self.log.error(f'Stream \'{selected_stream_driver}\' is not ready')
-            return
+            return None
 
         track = await asyncio.get_event_loop().run_in_executor(None, lambda: stream.get_track(query))
         track.channel = channel
         self.queue.enqueue(track)
         self.log.debug(f'Enqueued {track}')
 
-        # if not self._check_for_file(track.id):
-        #     self.log.debug(f'Downloading {track.id}')
-        #     await asyncio.get_event_loop().run_in_executor(None, lambda: stream.download(track.id, self._get_track_file(track.id)))
-        # else:
-        #     self.log.debug(f'Already downloaded {track.id}')
-
-        # if not self._check_for_file(track.id):
-        #     self.log.error(f'Could not download {track.id}')
-        #     return
-
-        if not self.queue.is_playing:
+        if self.state == 'idle':
             self.state = 'playing'
             asyncio.get_event_loop().create_task(self._play(self.queue.pop()))
         else:
@@ -114,15 +151,73 @@ class Player:
         return track
 
     async def stop(self) -> None:
+        """
+        Stop playback but remember current track for possible resume.
+        This doesn't clear the queue.
+        """
         if self.client is None:
             return
 
-        self.state = 'stopped'
-
         if self.client[0].is_connected() and self.client[0].is_playing():
-            self.client[0].stop()
+            # Remember the current track so we can resume it later
+            self.paused_track = self.queue.current
+            self.client[0].pause()  # Use pause instead of stop to keep the voice client connected
+            self.state = 'paused'
+            self.log.info(f'Paused playback of {self.paused_track.title if self.paused_track else "unknown"}')
+            # Don't disconnect - keep the connection for resume functionality
+        else:
+            self.log.debug("Called stop but no audio was playing")
 
-        await self.client[0].disconnect()
+    async def resume(self, channel: Any = None) -> bool:
+        """
+        Resume playback if it was stopped.
+        Returns True if successfully resumed, False otherwise.
+        """
+        self.log.debug(f"Resume called. State: {self.state}, Paused track: {self.paused_track}, Client: {self.client}")
+        
+        # If we're already playing, do nothing
+        if self.state == 'playing':
+            self.log.debug("Already playing, nothing to resume")
+            return False
+            
+        # If we have a paused track and the client is still connected
+        if self.paused_track and self.client is not None and self.client[0].is_connected():
+            self.log.info(f"Resuming playback of {self.paused_track.title}")
+            self.client[0].resume()  # Resume the paused playback
+            self.state = 'playing'
+            return True
+            
+        # If we have a paused track but need to reconnect
+        elif self.paused_track:
+            self.log.info(f"Restarting playback of {self.paused_track.title}")
+            # If channel wasn't provided but we have the track's channel
+            target_channel = channel or self.paused_track.channel
+            
+            if target_channel:
+                self.queue.current = self.paused_track
+                track = self.paused_track
+                self.paused_track = None
+                
+                asyncio.get_event_loop().create_task(self._play(track))
+                return True
+            else:
+                self.log.error("Cannot resume: No voice channel specified")
+                return False
+                
+        # If we have nothing to resume but have items in the queue
+        elif not self.queue.is_empty:
+            self.log.info("Starting playback from queue")
+            self.state = 'playing'
+            if channel and self.queue.queue[0]:
+                self.queue.queue[0].channel = channel
+            
+            asyncio.get_event_loop().create_task(self._play(self.queue.pop()))
+            return True
+            
+        # Nothing to resume
+        else:
+            self.log.debug("Nothing to resume")
+            return False
 
 
     async def clear(self) -> None:
@@ -134,9 +229,15 @@ class Player:
         if self.client is None:
             return 0
 
-        if self.client[0].is_connected() and self.client[0].is_playing():
-            self.client[0].stop()
-
+        # If we're paused, clear the paused track 
+        if self.state == 'paused':
+            self.paused_track = None
+            
+        if self.client[0].is_connected():
+            # Stop current playback regardless of if it's playing or paused
+            if self.client[0].is_playing():
+                self.client[0].stop()
+            
             if not self.queue.is_empty:
                 self.log.info(f'Queue is nonempty, skipping to the next song...')
                 self.state = 'playing'
@@ -146,6 +247,8 @@ class Player:
             else:
                 self.log.info(f'Queue is empty')
                 self.queue.current = None
+                self.paused_track = None
+                self.state = 'idle'
                 await self.client[0].disconnect()
                 self.client = None
 
@@ -170,6 +273,17 @@ class Player:
 
     def _check_for_file(self, id: str) -> bool:
         return os.path.exists(self._get_track_file(id))
+        
+    def get_state(self) -> str:
+        """Returns the current player state as a string."""
+        if self.state == 'paused' and self.paused_track:
+            return f"Paused: {self.paused_track.title}"
+        elif self.state == 'playing' and self.queue.current:
+            return f"Playing: {self.queue.current.title}"
+        elif not self.queue.is_empty:
+            return f"Queue has {len(self.queue.queue)} songs"
+        else:
+            return "Idle"
 
     def __repr__(self) -> str:
         return f'Player[guild={self.guild}, queue={self.queue}]'

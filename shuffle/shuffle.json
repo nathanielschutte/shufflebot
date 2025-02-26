@@ -16,8 +16,14 @@
     },
     "stop": {
         "argmin": 0,
-        "aliases": ["kill"],
+        "aliases": ["pause"],
         "desc": "stop playback",
+        "usage": ""
+    },
+    "resume": {
+        "argmin": 0,
+        "aliases": ["unpause", "continue"],
+        "desc": "resume paused playback",
         "usage": ""
     },
     "skip": {

@@ -4,7 +4,8 @@ import logging
 from typing import List, Callable
 from dataclasses import dataclass
 
-import youtube_dl # type: ignore
+# Replace youtube_dl with yt_dlp
+import yt_dlp as youtube_dl  # This allows minimal code changes
 
 from shuffle.log import shuffle_logger
 from shuffle.player.models.Track import Track
@@ -27,7 +28,11 @@ class YoutubeStream(Stream):
             }],
             'prefer_ffmpeg': True,
             'keepvideo': False,
-            'nocheckcertificate': True
+            'nocheckcertificate': True,
+            # Add these new options for better reliability
+            'geo_bypass': True,
+            'ignoreerrors': True,
+            'no_warnings': True
         }
 
     def download(self, video_hash: str, path: str) -> None:
@@ -50,7 +55,33 @@ class YoutubeStream(Stream):
         url = result['webpage_url']
         self.logger.info(f'Got URL {url} (title={result["title"]}, id={result["id"]})')
 
-        return Track(id=result['id'], title=result["title"], query=query, web_url=url, audio_url=result['formats'][0]['url'])
+        # More reliable way to get the audio URL 
+        formats = result.get('formats', [])
+        # self.logger.debug(f'Formats: {formats}')
+        audio_formats = [f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none']
+        # self.logger.debug(f'Audio formats: {audio_formats}')
+        
+        # Select the best audio format, or fallback to the first format
+        audio_url = None
+        if audio_formats:
+            # Sort by bitrate and pick the highest
+            try:
+                def _sort_key(format):
+                    key = format.get('abr', 0)
+                    return int(key) if key and key is not None else 0
+                audio_formats.sort(key=_sort_key, reverse=True)
+                audio_url = audio_formats[0]['url']
+            except TypeError:
+                audio_url = formats[0]['url'] if formats else None
+        else:
+            # Fallback to first format
+            audio_url = formats[0]['url'] if formats else None
+            
+        if not audio_url:
+            self.logger.error(f"Failed to extract audio URL for {result['id']}")
+            audio_url = result['formats'][0]['url']  # Original fallback
+
+        return Track(id=result['id'], title=result["title"], query=query, web_url=url, audio_url=audio_url)
 
     def is_ready(self) -> bool:
         return True

@@ -17,7 +17,7 @@ build: .env
 run: build
 	docker run -d --rm \
 		-v $(LOG_DIR):/var/log/shuffle \
-		--name "$(PROJECT_NAME)-run"
+		--name "$(PROJECT_NAME)-run" \
 		$(PROJECT_NAME):latest
 
 run-dev:
