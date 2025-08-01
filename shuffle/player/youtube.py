@@ -23,6 +23,7 @@ class YoutubeStream(Stream):
         # Base options that work well to avoid 403 errors
         self._base_opts = {
             # Don't specify format - let yt-dlp choose the best automatically
+
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
