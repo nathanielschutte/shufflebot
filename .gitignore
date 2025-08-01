@@ -9,3 +9,4 @@ __pycache__
 files
 log/
 .mypy_cache
+.qodo

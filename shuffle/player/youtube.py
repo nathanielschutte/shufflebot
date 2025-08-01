@@ -1,10 +1,10 @@
-
 import os
 import logging
 from typing import List, Callable
 from dataclasses import dataclass
 import random
 import string
+import time
 
 import yt_dlp as youtube_dl
 
@@ -18,125 +18,166 @@ class YoutubeStream(Stream):
         super().__init__(guild_id)
 
         self.logger = shuffle_logger('youtube')
-
-        # user_agents = [
-        #     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        #     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-        #     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36',
-        #     'Mozilla/5.0 (iPhone; CPU iPhone OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-        #     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36',
-        # ]
-
-        proxy_list_path = os.path.join(PROJECT_ROOT, 'config/proxies.txt')
-        self.proxies = []
-
-        # if os.path.exists(proxy_list_path):
-        #     with open(proxy_list_path, 'r') as f:
-        #         self.proxies = [line.strip() for line in f if line.strip()]
-        #     self.logger.info(f"Loaded {len(self.proxies)} proxies")
-        # else:
-        #     self.logger.warning(f"Proxy list not found at {proxy_list_path}")
-        
         self.savedir = 'db/audio'
-        self._raw_opts = {
-            'outtmpl': self.savedir + '%(title)s.%(ext)s',
+        
+        # Base options that work well to avoid 403 errors
+        self._base_opts = {
             'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'prefer_ffmpeg': True,
-            'keepvideo': False,
-            'nocheckcertificate': True,
-            # 'user_agent': random.choice(user_agents),
-            'referer': 'https://www.youtube.com/',
-            'geo_bypass': True,
-            'ignoreerrors': True,
+            'quiet': True,
             'no_warnings': True,
-            'extractor_retries': 10,
-            'socket_timeout': 30,
-            'concurrent_fragment_downloads': 5,
-            'downloader_options': {
-                'http': {
-                    'chunk_size': 10485760,  # 10MB
+            'extract_flat': False,
+            'skip_download': True,
+            'ignoreerrors': False,
+            'no_playlist': True,
+            # Use different extractor approaches
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'web'],
+                    'skip': ['dash', 'hls']
                 }
-            },
-            'client_identifier': ''.join(random.choice(string.ascii_lowercase) for i in range(8)),
-            'throttledratelimit': 100000,  # Increase rate limit
+            }
         }
 
     def download(self, video_hash: str, path: str) -> None:
         actual_url = f'https://www.youtube.com/watch?v={video_hash}'
         self.logger.info(f'Downloading {actual_url}')
         if not os.path.exists(os.path.dirname(path)):
-            os.mkdir(os.path.dirname(path))
-        self._raw_opts['outtmpl'] = path
-        with youtube_dl.YoutubeDL(self._raw_opts) as ydl:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        
+        opts = self._base_opts.copy()
+        opts.update({
+            'outtmpl': path,
+            'skip_download': False,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }]
+        })
+        
+        with youtube_dl.YoutubeDL(opts) as ydl:
             ydl.download([actual_url])
 
     def get_track(self, query: str) -> Track:
-        # self._raw_opts['user_agent'] = random.choice([
-        #     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        #     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-        #     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36',
-        # ])
-
-
-        url = None
-        attempt = 1
-        while not url and attempt <= 3:
-            if self.proxies:
-                proxy = random.choice(self.proxies)
-                self._raw_opts['proxy'] = proxy
-                self.logger.debug(f"Using proxy: {proxy}")
-            try:
-                with youtube_dl.YoutubeDL(self._raw_opts) as ydl:
-                    result = ydl.extract_info(f"ytsearch:{query}", download=False)
-                    if 'entries' in result:
-                        result = result['entries'][0]
-                    url = result['webpage_url']
-                    break
-            except Exception as e:
-                self.logger.error(f"Error with initial search: {str(e)}")
-                attempt += 1
-                self.logger.info(f"Retrying search (attempt {attempt})")
-
-
-
-        if not url:
-            self.logger.error(f"Failed to extract URL for {query}")
+        """Get track info with better error handling"""
+        
+        # Create options for this specific request
+        opts = self._base_opts.copy()
+        
+        # Rotate user agents
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        ]
+        
+        opts['user_agent'] = random.choice(user_agents)
+        
+        # Check for cookies file
+        cookie_file = os.path.join(PROJECT_ROOT, 'config', 'cookies.txt')
+        if os.path.exists(cookie_file):
+            opts['cookiefile'] = cookie_file
+            self.logger.debug("Using cookies file")
+        
+        try:
+            with youtube_dl.YoutubeDL(opts) as ydl:
+                # Search for the video
+                self.logger.debug(f"Searching for: {query}")
+                result = ydl.extract_info(f"ytsearch:{query}", download=False)
+                
+                if not result or 'entries' not in result or not result['entries']:
+                    self.logger.error(f"No results found for query: {query}")
+                    return None
+                
+                # Get first result
+                entry = result['entries'][0]
+                
+                # Extract info for the specific video to get formats
+                video_url = f"https://www.youtube.com/watch?v={entry['id']}"
+                self.logger.debug(f"Extracting info for: {video_url}")
+                
+                video_info = ydl.extract_info(video_url, download=False)
+                
+                # Get the best audio URL
+                audio_url = self._extract_audio_url(video_info)
+                
+                if not audio_url:
+                    self.logger.error(f"Failed to extract audio URL")
+                    return None
+                
+                return Track(
+                    id=video_info.get('id', 'unknown'),
+                    title=video_info.get('title', 'Unknown Title'),
+                    query=query,
+                    web_url=video_url,
+                    audio_url=audio_url,
+                    duration=video_info.get('duration', -1)
+                )
+                
+        except youtube_dl.utils.DownloadError as e:
+            error_msg = str(e)
+            if 'Sign in to confirm' in error_msg:
+                self.logger.error("YouTube requires sign-in. Consider using cookies.")
+            elif '403' in error_msg:
+                self.logger.error("Got 403 error. YouTube is blocking requests.")
+            else:
+                self.logger.error(f"Download error: {error_msg}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Unexpected error: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return None
 
-        self.logger.info(f'Got URL {url} (title={result["title"]}, id={result["id"]})')
-
-        # More reliable way to get the audio URL 
-        formats = result.get('formats', [])
-        # self.logger.debug(f'Formats: {formats}')
-        audio_formats = [f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none']
-        # self.logger.debug(f'Audio formats: {audio_formats}')
+    def _extract_audio_url(self, info_dict: dict) -> str:
+        """Extract the best audio URL from video info"""
         
-        # Select the best audio format, or fallback to the first format
-        audio_url = None
-        if audio_formats:
-            # Sort by bitrate and pick the highest
-            try:
-                def _sort_key(format):
-                    key = format.get('abr', 0)
-                    return int(key) if key and key is not None else 0
-                audio_formats.sort(key=_sort_key, reverse=True)
-                audio_url = audio_formats[0]['url']
-            except TypeError:
-                audio_url = formats[0]['url'] if formats else None
-        else:
-            # Fallback to first format
-            audio_url = formats[0]['url'] if formats else None
-            
-        if not audio_url:
-            self.logger.error(f"Failed to extract audio URL for {result['id']}")
-            audio_url = result['formats'][0]['url']  # Original fallback
-
-        return Track(id=result['id'], title=result["title"], query=query, web_url=url, audio_url=audio_url)
+        # First try to get the url directly
+        if 'url' in info_dict and info_dict['url']:
+            self.logger.debug("Using direct URL from info dict")
+            return info_dict['url']
+        
+        # Otherwise look through formats
+        formats = info_dict.get('formats', [])
+        
+        if not formats:
+            self.logger.warning("No formats found in video info")
+            return None
+        
+        # Try to find audio-only formats first
+        audio_formats = []
+        for f in formats:
+            # Check if it's audio only
+            if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
+                audio_formats.append(f)
+        
+        # If no audio-only formats, get all formats with audio
+        if not audio_formats:
+            audio_formats = [f for f in formats if f.get('acodec') != 'none']
+        
+        if not audio_formats:
+            self.logger.error("No audio formats found")
+            # Last resort - try first format
+            if formats:
+                return formats[0].get('url')
+            return None
+        
+        # Sort by audio quality (bitrate)
+        audio_formats.sort(
+            key=lambda f: float(f.get('abr', 0) or 0),
+            reverse=True
+        )
+        
+        # Get the best format
+        best_format = audio_formats[0]
+        
+        self.logger.debug(
+            f"Selected format {best_format.get('format_id')} "
+            f"with bitrate {best_format.get('abr')} "
+            f"codec {best_format.get('acodec')}"
+        )
+        
+        return best_format.get('url')
 
     def is_ready(self) -> bool:
         return True
