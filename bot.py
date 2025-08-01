@@ -24,7 +24,15 @@ shuffle_env = os.getenv('SHUFFLE_ENV', 'dev')
 
 async def bot_create():
     logger.info('Starting bot...')
-    await bot.add_cog(shuffle.ShuffleBot(bot, logger, env=shuffle_env))
+    shuffle_cog = shuffle.ShuffleBot(bot, logger, env=shuffle_env)
+    await bot.add_cog(shuffle_cog)
+    
+    @bot.event
+    async def on_ready():
+        logger.info('Bot connected, waiting for Discord to stabilize...')
+        await asyncio.sleep(2)  # Give Discord time to fully initialize
+        logger.info('Bot is fully ready')
+    
     await bot.start(TOKEN)
 
 loop = asyncio.new_event_loop()

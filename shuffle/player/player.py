@@ -35,7 +35,6 @@ class Player:
         self.log = shuffle_logger(f'player [{self.guild.id}]')
         self.log.info(f'Created player for {self.guild} with queue {self.queue}')
 
-
     async def _play(self, track: Track) -> None:
         self.log.info(f'Playing {track.title} [{track.web_url}]')
 
@@ -43,22 +42,114 @@ class Player:
 
         # Check if existing voice client is in the correct channel
         if self.client is not None:
-            if track.channel.id != self.client[1]:
-                self.log.debug(f'Moving from old channel {self.client[1]} to request channel {track.channel.id}')
-                await self.client[0].move_to(track.channel.id)
-                voice = self.client[0]
-                self.client[1] = track.channel.id
-            else:
-                voice = self.client[0]
+            try:
+                # Check if the client is still valid and connected
+                if self.client[0].is_connected():
+                    if track.channel.id != self.client[1]:
+                        self.log.debug(f'Moving from old channel {self.client[1]} to request channel {track.channel.id}')
+                        await self.client[0].move_to(track.channel)
+                        voice = self.client[0]
+                        self.client[1] = track.channel.id
+                    else:
+                        voice = self.client[0]
+                        self.log.debug("Using existing voice client")
+                else:
+                    # Client exists but not connected, clean it up
+                    self.log.debug("Client exists but not connected, cleaning up")
+                    self.client = None
+            except Exception as e:
+                self.log.error(f"Error checking existing client: {e}")
+                # Clean up invalid client
+                try:
+                    if self.client and self.client[0]:
+                        await self.client[0].disconnect(force=True)
+                except:
+                    pass
+                self.client = None
         
         # Need a new voice client
         if voice is None:
-            voice = await track.channel.connect()
-            self.client = [voice, track.channel.id]
+            # First check if bot is already in a voice channel in this guild
+            if self.bot and hasattr(self.bot, 'voice_clients'):
+                for vc in self.bot.voice_clients:
+                    if vc.guild.id == self.guild.id:
+                        self.log.debug("Found existing voice client in guild")
+                        try:
+                            if vc.channel.id != track.channel.id:
+                                await vc.move_to(track.channel)
+                            voice = vc
+                            self.client = [voice, track.channel.id]
+                            break
+                        except Exception as e:
+                            self.log.error(f"Error reusing voice client: {e}")
+                            try:
+                                await vc.disconnect(force=True)
+                            except:
+                                pass
+            
+            # If still no voice client, create new one
+            if voice is None:
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        self.log.debug(f"Attempting to connect to voice channel (attempt {attempt + 1}/{max_retries})")
+                        
+                        # Add timeout and reconnect parameters
+                        voice = await track.channel.connect(timeout=60.0, reconnect=True)
+                        self.client = [voice, track.channel.id]
+                        self.log.debug("Successfully connected to voice channel")
+                        break
+                        
+                    except discord.ClientException as e:
+                        if "Already connected" in str(e):
+                            self.log.warning("Already connected to voice channel, attempting to find it")
+                            # Try to find the existing connection
+                            for vc in self.bot.voice_clients:
+                                if vc.guild.id == self.guild.id:
+                                    voice = vc
+                                    self.client = [voice, vc.channel.id]
+                                    if vc.channel.id != track.channel.id:
+                                        await vc.move_to(track.channel)
+                                        self.client[1] = track.channel.id
+                                    break
+                            if voice:
+                                break
+                        else:
+                            raise
+                            
+                    except IndexError as e:
+                        self.log.error(f"IndexError connecting to voice (attempt {attempt + 1}): {e}")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(2)  # Wait longer between retries
+                        else:
+                            self.log.error("Failed to connect after all retries - Discord voice servers may be having issues")
+                            
+                    except Exception as e:
+                        self.log.error(f"Unexpected error connecting to voice: {type(e).__name__}: {e}")
+                        import traceback
+                        self.log.error(traceback.format_exc())
+                        
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(1)
 
-        assert voice is not None
+        if voice is None:
+            self.log.error("Failed to establish voice connection")
+            # Clean up
+            self.queue.current = None
+            self.paused_track = None
+            self.state = 'idle'
+            
+            # Try next in queue if available
+            if not self.queue.is_empty:
+                self.log.info("Trying next track in queue...")
+                await asyncio.sleep(3)  # Give Discord more time
+                asyncio.create_task(self._play(self.queue.pop()))
+            return
+
+        # Ensure voice client is ready
+        await asyncio.sleep(0.5)  # Small delay to ensure connection is stable
         
-        # More robust FFMPEG options with extensive error handling and reconnection capabilities
+        # Simple FFMPEG options that work reliably
         FFMPEG_OPTIONS = {
             'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
             'options': '-vn'
@@ -66,67 +157,102 @@ class Player:
         
         self.log.debug(f'Attempting to play with audio URL: {track.audio_url[:100]}...')
         
+        # Track if we successfully started playing
+        started_playing = False
+        
         try:
             self.log.debug("Creating FFmpegPCMAudio instance...")
-            audio_source = discord.FFmpegPCMAudio(track.audio_url, **FFMPEG_OPTIONS)
+            
+            # Create the audio source
+            audio_source = discord.FFmpegPCMAudio(
+                track.audio_url, 
+                **FFMPEG_OPTIONS
+            )
+            
             self.log.debug("Created FFmpegPCMAudio instance successfully")
             
-            # Add a volume transformer to prevent potential clipping/distortion
-            audio_source = discord.PCMVolumeTransformer(audio_source, volume=0.5)
-            
-            self.log.debug("Starting playback...")
-            voice.play(audio_source)
-            self.log.debug("Playback started successfully")
-            self.state = 'playing'
-        except Exception as e:
-            self.log.error(f'Error in playback: {str(e)}')
-            # Try with simplified options as a fallback
-            try:
-                self.log.info(f'Attempting fallback with simplified options')
-                FALLBACK_OPTIONS = {
-                    'before_options': '-reconnect 1 -reconnect_streamed 1',
-                    'options': '-vn'
-                }
-                audio_source = discord.FFmpegPCMAudio(track.audio_url, **FALLBACK_OPTIONS)
-                voice.play(audio_source)
-                self.log.debug("Fallback playback started successfully")
-                self.state = 'playing'
-            except Exception as e2:
-                self.log.error(f'Fallback also failed: {str(e2)}')
-                self.queue.current = None
-                self.paused_track = None
-                if not self.queue.is_empty and self.state != 'stopped':
-                    self.log.debug(f'Skipping problematic track, trying next song...')
-                    asyncio.get_event_loop().create_task(self._play(self.queue.pop()))
-                    return
+            # Create an error callback
+            def after_playing(error):
+                if error:
+                    self.log.error(f'Playback error: {error}')
                 else:
-                    self.log.debug(f'No more tracks to play, disconnecting')
-                    self.state = 'idle'
-                    await voice.disconnect()
-                    self.client = None
-                    return
-    
-        play_counter = 0
-        while voice.is_connected() and voice.is_playing():
-            await asyncio.sleep(1)
-            play_counter += 1
-            if play_counter > 1000:
-                self.log.warn(f'Track timeout after 1000 seconds: {track.id}')
-                break
-        self.log.debug(f'Done playing {track.title} [{track.web_url}]')
+                    self.log.debug('Playback ended normally')
+            
+            # Start playing
+            voice.play(audio_source, after=after_playing)
+            self.state = 'playing'
+            started_playing = True
+            self.log.debug("Playback started successfully")
+            
+        except Exception as e:
+            self.log.error(f'Error creating audio source: {str(e)}')
+            import traceback
+            self.log.error(traceback.format_exc())
+            
+            # Try a simpler approach
+            if not started_playing:
+                try:
+                    self.log.info('Attempting minimal FFmpeg options')
+                    audio_source = discord.FFmpegPCMAudio(track.audio_url)
+                    voice.play(audio_source)
+                    self.state = 'playing'
+                    started_playing = True
+                    self.log.debug("Minimal playback started")
+                except Exception as e2:
+                    self.log.error(f'Minimal approach also failed: {str(e2)}')
 
-        # If we disconnected or the bot was stopped, don't continue with the queue
-        if not voice.is_connected() or self.state == 'stopped' or self.state == 'paused':
+        # If we couldn't start playing at all, skip to next track
+        if not started_playing:
+            self.queue.current = None
+            self.paused_track = None
+            
+            # Don't disconnect - might be useful for next track
+            if not self.queue.is_empty and self.state != 'stopped':
+                self.log.debug('Skipping to next track...')
+                await asyncio.sleep(1)
+                asyncio.create_task(self._play(self.queue.pop()))
+                return
+            else:
+                self.log.debug('No more tracks, disconnecting')
+                self.state = 'idle'
+                if voice:
+                    try:
+                        await voice.disconnect()
+                    except:
+                        pass
+                self.client = None
+                return
+
+        # Wait for the song to finish playing
+        while voice.is_connected() and (voice.is_playing() or voice.is_paused()):
+            await asyncio.sleep(0.5)
+            
+        self.log.debug(f'Done playing {track.title}')
+
+        # Check why we stopped
+        if not voice.is_connected():
+            self.log.debug('Voice disconnected during playback')
+            self.state = 'idle'
+            self.client = None
+            return
+            
+        if self.state == 'stopped' or self.state == 'paused':
+            self.log.debug(f'Playback {self.state}, not continuing queue')
             return
 
+        # Continue with queue if available
         if not self.queue.is_empty and self.state == 'playing':
-            self.log.debug(f'Queue is nonempty, playing next song...')
-            asyncio.get_event_loop().create_task(self._play(self.queue.pop()))
+            self.log.debug(f'Playing next song from queue ({len(self.queue.queue)} remaining)...')
+            await self._play(self.queue.pop())
         else:
+            self.log.info('Queue empty, disconnecting')
             self.queue.current = None
             self.paused_track = None
             self.state = 'idle'
-            await voice.disconnect()
+            try:
+                await voice.disconnect()
+            except:
+                pass
             self.client = None
     
     async def enqueue(self, query: str, channel: Any) -> Track:

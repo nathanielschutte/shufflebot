@@ -22,7 +22,8 @@ class YoutubeStream(Stream):
         
         # Base options that work well to avoid 403 errors
         self._base_opts = {
-            'format': 'bestaudio/best',
+            # Don't specify format - let yt-dlp choose the best automatically
+
             'quiet': True,
             'no_warnings': True,
             'extract_flat': False,
@@ -33,7 +34,6 @@ class YoutubeStream(Stream):
             'extractor_args': {
                 'youtube': {
                     'player_client': ['android', 'web'],
-                    'skip': ['dash', 'hls']
                 }
             }
         }
@@ -96,6 +96,7 @@ class YoutubeStream(Stream):
                 video_url = f"https://www.youtube.com/watch?v={entry['id']}"
                 self.logger.debug(f"Extracting info for: {video_url}")
                 
+                # Let yt-dlp handle format selection automatically
                 video_info = ydl.extract_info(video_url, download=False)
                 
                 # Get the best audio URL
@@ -132,49 +133,73 @@ class YoutubeStream(Stream):
     def _extract_audio_url(self, info_dict: dict) -> str:
         """Extract the best audio URL from video info"""
         
-        # First try to get the url directly
+        # Check if yt-dlp already selected a URL for us
         if 'url' in info_dict and info_dict['url']:
-            self.logger.debug("Using direct URL from info dict")
+            self.logger.debug("Using URL selected by yt-dlp")
             return info_dict['url']
         
         # Otherwise look through formats
         formats = info_dict.get('formats', [])
         
         if not formats:
+            # Check if there's a direct URL in requested_formats
+            requested_formats = info_dict.get('requested_formats', [])
+            if requested_formats and requested_formats[0].get('url'):
+                self.logger.debug("Using URL from requested_formats")
+                return requested_formats[0]['url']
+            
             self.logger.warning("No formats found in video info")
             return None
         
+        # Log available formats for debugging
+        self.logger.debug(f"Total formats available: {len(formats)}")
+        
         # Try to find audio-only formats first
-        audio_formats = []
+        audio_only_formats = []
+        audio_with_video_formats = []
+        
         for f in formats:
-            # Check if it's audio only
-            if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
-                audio_formats.append(f)
+            if f.get('url'):  # Must have a URL
+                # Audio only format (no video codec)
+                if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
+                    audio_only_formats.append(f)
+                # Format with audio (might have video too)
+                elif f.get('acodec') != 'none':
+                    audio_with_video_formats.append(f)
         
-        # If no audio-only formats, get all formats with audio
-        if not audio_formats:
-            audio_formats = [f for f in formats if f.get('acodec') != 'none']
+        # Prefer audio-only formats
+        if audio_only_formats:
+            self.logger.info(f"Found {len(audio_only_formats)} audio-only formats")
+            # Sort by audio bitrate (handle None values)
+            audio_only_formats.sort(
+                key=lambda f: float(f.get('abr', 0) or 0), 
+                reverse=True
+            )
+            best_format = audio_only_formats[0]
+        elif audio_with_video_formats:
+            self.logger.info(f"No audio-only formats, using format with video ({len(audio_with_video_formats)} available)")
+            # For video+audio formats, prefer lower video quality to save bandwidth
+            # Sort by audio bitrate
+            audio_with_video_formats.sort(
+                key=lambda f: float(f.get('abr', 0) or 0), 
+                reverse=True
+            )
+            best_format = audio_with_video_formats[0]
+        else:
+            # Last resort - just use the first format with a URL
+            formats_with_url = [f for f in formats if f.get('url')]
+            if formats_with_url:
+                self.logger.warning("No audio formats found, using first available format")
+                best_format = formats_with_url[0]
+            else:
+                self.logger.error("No formats with URLs found")
+                return None
         
-        if not audio_formats:
-            self.logger.error("No audio formats found")
-            # Last resort - try first format
-            if formats:
-                return formats[0].get('url')
-            return None
-        
-        # Sort by audio quality (bitrate)
-        audio_formats.sort(
-            key=lambda f: float(f.get('abr', 0) or 0),
-            reverse=True
-        )
-        
-        # Get the best format
-        best_format = audio_formats[0]
-        
-        self.logger.debug(
-            f"Selected format {best_format.get('format_id')} "
-            f"with bitrate {best_format.get('abr')} "
-            f"codec {best_format.get('acodec')}"
+        self.logger.info(
+            f"Selected format {best_format.get('format_id', 'unknown')} - "
+            f"{best_format.get('ext', 'unknown')} - "
+            f"video={best_format.get('vcodec', 'unknown')} "
+            f"audio={best_format.get('acodec', 'unknown')} @ {best_format.get('abr', 'unknown')}kbps"
         )
         
         return best_format.get('url')
