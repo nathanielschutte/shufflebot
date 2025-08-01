@@ -1,4 +1,4 @@
-FROM python:3.9.1-slim-buster as shuffle
+FROM python:3.9-slim-bullseye AS shuffle
 
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -45,11 +45,11 @@ RUN echo "* soft nofile 1048576" >> /etc/security/limits.conf && \
 RUN mkdir -p /var/log/shuffle
 RUN mkdir -p /var/lib/shuffle
 
-COPY lib /app/lib
 COPY requirements /app/requirements
 RUN pip install -r /app/requirements/requirements-docker.txt
 
-RUN pip install selenium undetected-chromedriver pytube
+# Remove these lines since we're removing selenium, undetected-chromedriver, pytube
+# RUN pip install selenium undetected-chromedriver pytube
 
 COPY bot.py /app/bot.py
 COPY shuffle /app/shuffle

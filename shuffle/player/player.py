@@ -60,8 +60,8 @@ class Player:
         
         # More robust FFMPEG options with extensive error handling and reconnection capabilities
         FFMPEG_OPTIONS = {
-            'before_options': '-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 15 -timeout 10000000',
-            'options': '-vn -dn -sn -threads 4 -af "volume=0.5"'
+            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+            'options': '-vn'
         }
         
         self.log.debug(f'Attempting to play with audio URL: {track.audio_url[:100]}...')
