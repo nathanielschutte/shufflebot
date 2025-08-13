@@ -1,6 +1,6 @@
 
 import os
-import spotipy # type: ignore
+#import spotipy # type: ignore
 import json
 
 from shuffle.player.stream import Stream
