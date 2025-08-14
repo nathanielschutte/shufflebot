@@ -1,3 +1,8 @@
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger('discord.voice_state').setLevel(logging.DEBUG)
+logging.getLogger('discord.gateway').setLevel(logging.DEBUG)
+
 def patch_discord_voice():
     """Apply the fix from PR #10210 without modifying discord.py files"""
     import sys
@@ -28,6 +33,7 @@ def patch_discord_voice():
 
 # Apply the patch before importing anything else
 patch_discord_voice()
+
 
 # Once discord.py fixes this issue, we can remove this patch (ALL ABOVE THIS LINE)
 
