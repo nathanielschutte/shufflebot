@@ -79,7 +79,7 @@ class Player:
                     return
 
         # Give connection a moment to settle
-        await asyncio.sleep(2)
+        await asyncio.sleep(0.5)
 
        # --- REORDERED LOGIC START ---
         
