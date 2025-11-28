@@ -38,7 +38,7 @@ class Player:
     async def _play(self, track: Track) -> None:
         self.log.info(f'Playing {track.title} [{track.web_url}]')
 
-        # --- Voice Client Connection Logic ---
+        # --- 1. Connect to Voice (With Deafening) ---
         voice = None
         
         # Check existing connection
@@ -46,7 +46,6 @@ class Player:
             try:
                 if self.client[0].is_connected():
                     if track.channel.id != self.client[1]:
-                        self.log.debug(f'Moving to new channel {track.channel.id}')
                         await self.client[0].move_to(track.channel)
                         self.client[1] = track.channel.id
                     voice = self.client[0]
@@ -55,9 +54,8 @@ class Player:
             except:
                 self.client = None
 
-        # Connect if needed
         if voice is None:
-            # Check bot's existing voice connections first
+            # Check for bot in other channels
             if self.bot and hasattr(self.bot, 'voice_clients'):
                 for vc in self.bot.voice_clients:
                     if vc.guild.id == self.guild.id:
@@ -67,66 +65,56 @@ class Player:
                             await vc.move_to(track.channel)
                         break
             
-            # Still no voice? Connect.
+            # Connect fresh if needed
             if voice is None:
                 try:
-                    voice = await track.channel.connect(timeout=60.0, reconnect=True)
+                    # Added self_deaf=True to save bandwidth and mimic "normal" bot behavior
+                    voice = await track.channel.connect(timeout=60.0, reconnect=True, self_deaf=True)
                     self.client = [voice, track.channel.id]
                 except Exception as e:
                     self.log.error(f"Connection error: {e}")
-                    # Handle queue cleanup if connection fails
                     if not self.queue.is_empty:
                         await asyncio.sleep(1)
                         asyncio.create_task(self._play(self.queue.pop()))
                     return
 
-        # Ensure voice is stable
+        # Give connection a moment to settle
         await asyncio.sleep(0.5)
 
-        # --- Audio Source Logic ---
-
-        # 1. Trigger Spotify Playback (if needed)
+        # --- 2. Start Source Audio ---
         if track.on_start:
             self.log.debug("Triggering external playback...")
             await asyncio.get_event_loop().run_in_executor(None, track.on_start)
-            await asyncio.sleep(0.5) # Give pipe a moment to fill
+            # Wait 2 seconds to let Librespot fill the pipe buffer
+            await asyncio.sleep(2.0) 
 
-        # 2. Create the Audio Source
+        # --- 3. Create Audio Stream (PCMAudio) ---
         started_playing = False
         try:
             audio_source = None
             
             if track.source == 'spotify_spoof':
-                self.log.debug("Creating Pipe Source (Raw PCM)...")
-                # Specific options for Librespot Raw Output
-                pipe_options = {
-                    'before_options': '-f s16le -ar 44100 -ac 2',
-                    'options': '-vn'
-                }
-                # USE CONSTRUCTOR (Allows forcing bitrate=384)
-                audio_source = discord.FFmpegOpusAudio(
+                self.log.debug("Creating Pipe Source (Standard PCM)...")
+                # Librespot outputs 44.1k s16le. We tell FFmpeg this (before_options).
+                # FFmpegPCMAudio automatically converts output to 48k for Discord.
+                audio_source = discord.FFmpegPCMAudio(
                     track.audio_url,
-                    bitrate=384, 
-                    **pipe_options
+                    before_options='-f s16le -ar 44100 -ac 2', 
+                    options='-vn'
                 )
             else:
                 self.log.debug("Creating YouTube Source...")
+                # YouTube logic remains the same
                 yt_options = {
                     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
                     'options': '-vn'
                 }
-                # USE PROBE (Safer for URLs, removed manual bitrate to fix crash)
-                audio_source = await discord.FFmpegOpusAudio.from_probe(
-                    track.audio_url,
-                    **yt_options
-                )
+                audio_source = discord.FFmpegPCMAudio(track.audio_url, **yt_options)
 
-            # Define callback
             def after_playing(error):
                 if error: self.log.error(f'Playback error: {error}')
                 else: self.log.debug('Playback ended')
 
-            # Play
             voice.play(audio_source, after=after_playing)
             self.state = 'playing'
             started_playing = True
@@ -137,7 +125,7 @@ class Player:
             import traceback
             self.log.error(traceback.format_exc())
 
-        # --- Queue Handling ---
+        # --- 4. Queue Handling ---
         if not started_playing:
             self.log.warning("Could not start playback, skipping...")
             self.queue.current = None
@@ -145,11 +133,9 @@ class Player:
                 await self._play(self.queue.pop())
             return
 
-        # Wait loop
         while voice.is_connected() and (voice.is_playing() or voice.is_paused()):
             await asyncio.sleep(0.5)
 
-        # Cleanup / Next Song
         if not voice.is_connected():
             self.state = 'idle'
             self.client = None
@@ -164,8 +150,6 @@ class Player:
             self.log.info('Queue empty')
             self.state = 'idle'
             self.queue.current = None
-            # Optional: Disconnect after timeout
-            # await voice.disconnect()
     
     async def enqueue(self, query: str, channel: Any) -> Track:
         # 1. Detect if the user provided a Spotify Link
