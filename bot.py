@@ -1,3 +1,42 @@
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger('discord.voice_state').setLevel(logging.DEBUG)
+logging.getLogger('discord.gateway').setLevel(logging.DEBUG)
+
+def patch_discord_voice():
+    """Apply the fix from PR #10210 without modifying discord.py files"""
+    import sys
+    
+    # This must be done before importing discord
+    if 'discord' in sys.modules:
+        print("WARNING: Discord already imported, patch may not work fully")
+    
+    # Import what we need
+    import discord.gateway
+    
+    # Store original
+    original_voice_state_update = discord.gateway.DiscordVoiceWebSocket.send_as_json
+    
+    # Create patched version
+    async def patched_send_as_json(self, data):
+        # Log what we're sending
+        import json
+        print(f"[VOICE WS] Sending: {json.dumps(data, indent=2)}")
+        
+        # Call original
+        return await original_voice_state_update(self, data)
+    
+    # Apply patch
+    discord.gateway.DiscordVoiceWebSocket.send_as_json = patched_send_as_json
+    
+    print("✓ Applied discord.py voice connection patch")
+
+# Apply the patch before importing anything else
+patch_discord_voice()
+
+
+# Once discord.py fixes this issue, we can remove this patch (ALL ABOVE THIS LINE)
+
 import discord
 from discord.ext import commands
 
