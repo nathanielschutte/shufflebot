@@ -149,27 +149,41 @@ class Player:
         # Ensure voice client is ready
         await asyncio.sleep(0.5)  # Small delay to ensure connection is stable
         
-        # Simple FFMPEG options that work reliably
-        FFMPEG_OPTIONS = {
-            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-            'options': '-vn'
-        }
-        
-        self.log.debug(f'Attempting to play with audio URL: {track.audio_url[:100]}...')
-        
+        # 1. Trigger the Spotify Playback (if this is a spoofed track)
+        if track.on_start:
+            self.log.debug("Triggering external playback...")
+            # Run in executor to avoid blocking the bot loop while contacting Spotify API
+            await asyncio.get_event_loop().run_in_executor(None, track.on_start)
+            # Small buffer to let librespot fill the pipe
+            await asyncio.sleep(0.5) 
+
+        # 2. Configure FFmpeg for the Pipe
+        # Librespot pipe output is: s16le, 44100Hz, 2 channels
+        if track.source == 'spotify_spoof':
+            FFMPEG_OPTIONS = {
+                # These options go BEFORE the input (-i) to tell FFmpeg how to read raw data
+                'before_options': '-f s16le -ar 44100 -ac 2', 
+                'options': '-vn'
+            }
+        else:
+            # Standard YouTube options
+            FFMPEG_OPTIONS = {
+                'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+                'options': '-vn'
+            }
+
         # Track if we successfully started playing
         started_playing = False
         
         try:
-            self.log.debug("Creating FFmpegPCMAudio instance...")
+            self.log.debug(f"Creating Audio Source from {track.audio_url}")
             
-            # Create the audio source
-            audio_source = discord.FFmpegPCMAudio(
-                track.audio_url, 
+            # Use FFmpegOpusAudio for higher quality (384kbps) "Uncapped"
+            audio_source = await discord.FFmpegOpusAudio.from_probe(
+                track.audio_url,
+                bitrate=384, 
                 **FFMPEG_OPTIONS
             )
-            
-            self.log.debug("Created FFmpegPCMAudio instance successfully")
             
             # Create an error callback
             def after_playing(error):
@@ -178,7 +192,6 @@ class Player:
                 else:
                     self.log.debug('Playback ended normally')
             
-            # Start playing
             voice.play(audio_source, after=after_playing)
             self.state = 'playing'
             started_playing = True
@@ -188,18 +201,6 @@ class Player:
             self.log.error(f'Error creating audio source: {str(e)}')
             import traceback
             self.log.error(traceback.format_exc())
-            
-            # Try a simpler approach
-            if not started_playing:
-                try:
-                    self.log.info('Attempting minimal FFmpeg options')
-                    audio_source = discord.FFmpegPCMAudio(track.audio_url)
-                    voice.play(audio_source)
-                    self.state = 'playing'
-                    started_playing = True
-                    self.log.debug("Minimal playback started")
-                except Exception as e2:
-                    self.log.error(f'Minimal approach also failed: {str(e2)}')
 
         # If we couldn't start playing at all, skip to next track
         if not started_playing:

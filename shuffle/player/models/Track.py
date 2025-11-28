@@ -1,5 +1,5 @@
 
-from typing import Any
+from typing import Any, Callable, Optional
 
 from dataclasses import dataclass
 
@@ -15,3 +15,5 @@ class Track:
     source: str = 'youtube'
     status: str = 'queued'
     downloaded: bool = False
+    # Trigger function to start playback (used for Spotify Spoof)
+    on_start: Optional[Callable] = None

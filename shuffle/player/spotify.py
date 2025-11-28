@@ -1,7 +1,9 @@
-
 import os
+import time
+import asyncio
 import spotipy # type: ignore
-import json
+from spotipy.oauth2 import SpotifyOAuth # type: ignore
+from typing import Optional
 
 from shuffle.player.stream import Stream
 from shuffle.player.models.Track import Track
@@ -10,39 +12,83 @@ from shuffle.log import shuffle_logger
 class SpotifyStream(Stream):
     def __init__(self, guild_id: int) -> None:
         super().__init__(guild_id)
-
         self.logger = shuffle_logger('spotify')
+        
+        self.pipe_path = '/tmp/spotify_pipe'
+        self.device_name = "ShuffleBot"
+        self.device_id = None
 
-        self.username = os.getenv('SPOTIFY_USERNAME')
-        self.client_id = os.getenv('SPOTIFY_CLIENT_ID')
-        self.client_secret = os.getenv('SPOTIFY_CLIENT_SECRET')
-        self.redirect_url = os.getenv('SPOTIFY_REDIRECT_URL')
-
+        # User Auth is REQUIRED to control playback
+        # You must set SPOTIPY_REDIRECT_URI in your .env (e.g., http://localhost:8888/callback)
+        self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
+            scope="user-modify-playback-state user-read-playback-state",
+            open_browser=False
+        ))
+        
         self.ready = False
         self._setup()
 
     def _setup(self) -> None:
-        if self.guild_id not in [486252937354543104]:
-            raise NotImplementedError('Spotify is only supported for whitelisted servers')
+        try:
+            # Refresh devices
+            devices = self.sp.devices()
+            for d in devices['devices']:
+                if d['name'] == self.device_name:
+                    self.device_id = d['id']
+                    self.logger.info(f"Found Librespot device: {self.device_name} ({self.device_id})")
+                    self.ready = True
+                    break
+            
+            if not self.device_id:
+                self.logger.warning(f"Could not find device '{self.device_name}'. Make sure librespot is running.")
+        except Exception as e:
+            self.logger.error(f"Spotify Setup Error: {e}")
 
-        print(f'Using redirect url: {self.redirect_url}')
+    def get_track(self, query: str) -> Optional[Track]:
+        if not self.ready:
+            self._setup()
+            if not self.ready:
+                return None
 
-        oauth_object = spotipy.SpotifyOAuth(self.client_id, self.client_secret, self.redirect_url) 
-        token_dict = oauth_object.get_access_token() 
+        try:
+            # 1. Search/Resolve Track
+            track_info = None
+            if 'spotify.com' in query:
+                track_info = self.sp.track(query)
+            else:
+                results = self.sp.search(q=query, limit=1, type='track')
+                if results['tracks']['items']:
+                    track_info = results['tracks']['items'][0]
 
-        print(f'Got token: {token_dict}')
-        
-        token = token_dict['access_token']
-        spotify = spotipy.Spotify(auth=token)
-        user_name = spotify.current_user()
+            if not track_info:
+                return None
 
-        print(json.dumps(user_name, sort_keys=True, indent=4)) 
+            uri = track_info['uri']
+            title = f"{track_info['name']} - {track_info['artists'][0]['name']}"
+            
+            # 2. Define the "Trigger" function
+            # This function will be called by player.py RIGHT before playing audio
+            def start_playback():
+                self.logger.info(f"Triggering playback for {title} on {self.device_name}")
+                self.sp.start_playback(device_id=self.device_id, uris=[uri])
 
-    def download(self, video_hash: str, path: str) -> None:
-        raise NotImplementedError('Spotify does not support downloading')
-    
-    def get_track(self, query: str) -> Track:
-        ...
+            # 3. Return Track pointing to the Pipe
+            return Track(
+                id=track_info['id'],
+                title=title,
+                query=query,
+                web_url=track_info['external_urls']['spotify'],
+                # POINT TO THE PIPE
+                audio_url=self.pipe_path, 
+                duration=track_info['duration_ms'] // 1000,
+                source='spotify_spoof',
+                # ATTACH THE TRIGGER
+                on_start=start_playback 
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error getting track: {e}")
+            return None
 
     def is_ready(self) -> bool:
-       return self.ready
+        return self.ready
