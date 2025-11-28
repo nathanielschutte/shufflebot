@@ -257,14 +257,28 @@ class Player:
             self.client = None
     
     async def enqueue(self, query: str, channel: Any) -> Track:
-        selected_stream_driver = 'youtube'
-        stream = self.streams[selected_stream_driver]
+        # 1. Detect if the user provided a Spotify Link
+        if 'spotify.com' in query or 'spotify:' in query:
+            selected_stream_driver = 'spotify'
+            self.log.info("Spotify link detected, switching driver.")
+        else:
+            selected_stream_driver = 'youtube'
+
+        # 2. Get the correct driver (YouTube or Spotify)
+        stream = self.streams.get(selected_stream_driver)
+        
+        if not stream:
+            self.log.error(f"Stream driver '{selected_stream_driver}' not found/enabled")
+            return None
 
         if not stream.is_ready():
             self.log.error(f'Stream \'{selected_stream_driver}\' is not ready')
             return None
 
+        # 3. Get the track info
+        # run spotify.py code if driver is 'spotify'
         track = await asyncio.get_event_loop().run_in_executor(None, lambda: stream.get_track(query))
+        
         if track is None:
             self.log.error(f'Failed to get track for query: {query}')
             raise Exception('Failed to get track URL')
