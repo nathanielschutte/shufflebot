@@ -38,10 +38,8 @@ class Player:
     async def _play(self, track: Track) -> None:
         self.log.info(f'Playing {track.title} [{track.web_url}]')
 
-        # --- 1. Connect to Voice (With Deafening) ---
+        # --- 1. Connect to Voice ---
         voice = None
-        
-        # Check existing connection
         if self.client is not None:
             try:
                 if self.client[0].is_connected():
@@ -55,7 +53,6 @@ class Player:
                 self.client = None
 
         if voice is None:
-            # Check for bot in other channels
             if self.bot and hasattr(self.bot, 'voice_clients'):
                 for vc in self.bot.voice_clients:
                     if vc.guild.id == self.guild.id:
@@ -65,10 +62,8 @@ class Player:
                             await vc.move_to(track.channel)
                         break
             
-            # Connect fresh if needed
             if voice is None:
                 try:
-                    # Added self_deaf=True to save bandwidth and mimic "normal" bot behavior
                     voice = await track.channel.connect(timeout=60.0, reconnect=True, self_deaf=True)
                     self.client = [voice, track.channel.id]
                 except Exception as e:
@@ -78,23 +73,42 @@ class Player:
                         asyncio.create_task(self._play(self.queue.pop()))
                     return
 
-        # Give connection a moment to settle
-        await asyncio.sleep(0.5)
-
-       # --- REORDERED LOGIC START ---
-        
+        # --- 2. Create Synchronized Audio Source ---
         started_playing = False
         try:
             audio_source = None
             
-            # 1. Create the "Ear" (FFmpeg) FIRST
-            # This opens the pipe and waits for audio to arrive.
             if track.source == 'spotify_spoof':
-                self.log.debug("Opening Pipe Reader...")
+                self.log.debug("Starting Spotify Sync...")
+                
+                # A. Trigger Spotify Playback
+                # We start the trigger in the background so it runs while we wait for the pipe
+                if track.on_start:
+                    asyncio.create_task(asyncio.to_thread(track.on_start))
+                
+                # B. Open the Pipe (BLOCKING WAIT)
+                # This line will pause execution until Librespot actually connects
+                # We use a timeout so the bot doesn't freeze forever if Spotify fails
+                try:
+                    self.log.debug("Waiting for audio stream...")
+                    # This open() call BLOCKS until data flows
+                    pipe_file = await asyncio.wait_for(
+                        asyncio.to_thread(open, track.audio_url, 'rb'), 
+                        timeout=10.0
+                    )
+                except asyncio.TimeoutError:
+                    self.log.error("Spotify timed out (Librespot didn't send audio)")
+                    raise Exception("Spotify Timeout")
+
+                self.log.debug("Stream received! Piping to FFmpeg...")
+
+                # C. Create Source using the OPEN FILE
+                # pipe=True tells discord.py to read from our file object, not open it again
                 audio_source = discord.FFmpegPCMAudio(
-                    track.audio_url,
-                    before_options='-f s16le -ar 44100 -ac 2', 
-                    options='-vn'
+                    pipe_file, 
+                    pipe=True,
+                    before_options='-f s16le -ar 44100 -ac 2',
+                    options='-loglevel warning'
                 )
             else:
                 self.log.debug("Creating YouTube Source...")
@@ -108,25 +122,17 @@ class Player:
                 if error: self.log.error(f'Playback error: {error}')
                 else: self.log.debug('Playback ended')
 
-            # 2. Start Listening
             voice.play(audio_source, after=after_playing)
             self.state = 'playing'
             started_playing = True
-            self.log.debug("Listening for audio...")
-
-            # 3. Trigger Spotify (The "Mouth")
-            # Now that we are listening, tell Librespot to speak.
-            if track.on_start:
-                self.log.debug("Triggering external playback...")
-                # Run immediately in background
-                asyncio.create_task(asyncio.to_thread(track.on_start))
+            self.log.debug("Playback started successfully")
 
         except Exception as e:
             self.log.error(f'Error creating audio source: {str(e)}')
             import traceback
             self.log.error(traceback.format_exc())
 
-        # --- 4. Queue Handling ---
+        # --- 3. Queue Handling ---
         if not started_playing:
             self.log.warning("Could not start playback, skipping...")
             self.queue.current = None
