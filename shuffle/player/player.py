@@ -79,24 +79,18 @@ class Player:
                     return
 
         # Give connection a moment to settle
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(2)
 
-        # --- 2. Start Source Audio ---
-        if track.on_start:
-            self.log.debug("Triggering external playback...")
-            await asyncio.get_event_loop().run_in_executor(None, track.on_start)
-            # Wait 2 seconds to let Librespot fill the pipe buffer
-            await asyncio.sleep(2.0) 
-
-        # --- 3. Create Audio Stream (PCMAudio) ---
+       # --- REORDERED LOGIC START ---
+        
         started_playing = False
         try:
             audio_source = None
             
+            # 1. Create the "Ear" (FFmpeg) FIRST
+            # This opens the pipe and waits for audio to arrive.
             if track.source == 'spotify_spoof':
-                self.log.debug("Creating Pipe Source (Standard PCM)...")
-                # Librespot outputs 44.1k s16le. We tell FFmpeg this (before_options).
-                # FFmpegPCMAudio automatically converts output to 48k for Discord.
+                self.log.debug("Opening Pipe Reader...")
                 audio_source = discord.FFmpegPCMAudio(
                     track.audio_url,
                     before_options='-f s16le -ar 44100 -ac 2', 
@@ -104,7 +98,6 @@ class Player:
                 )
             else:
                 self.log.debug("Creating YouTube Source...")
-                # YouTube logic remains the same
                 yt_options = {
                     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
                     'options': '-vn'
@@ -115,10 +108,18 @@ class Player:
                 if error: self.log.error(f'Playback error: {error}')
                 else: self.log.debug('Playback ended')
 
+            # 2. Start Listening
             voice.play(audio_source, after=after_playing)
             self.state = 'playing'
             started_playing = True
-            self.log.debug("Playback started successfully")
+            self.log.debug("Listening for audio...")
+
+            # 3. Trigger Spotify (The "Mouth")
+            # Now that we are listening, tell Librespot to speak.
+            if track.on_start:
+                self.log.debug("Triggering external playback...")
+                # Run immediately in background
+                asyncio.create_task(asyncio.to_thread(track.on_start))
 
         except Exception as e:
             self.log.error(f'Error creating audio source: {str(e)}')
