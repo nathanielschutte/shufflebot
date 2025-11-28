@@ -40,40 +40,38 @@ class Player:
 
         # --- 1. Connect to Voice ---
         voice = None
-        
-        # [Existing reuse-connection logic remains same as before...]
         if self.client is not None:
-            # ... (your existing check code) ...
-            pass # Placeholder for brevity in this snippet
-
-        # [Existing find-bot logic remains same as before...]
-        
-        if voice is None:
             try:
-                # CONNECT
-                voice = await track.channel.connect(timeout=60.0, reconnect=True, self_deaf=True)
-                self.client = [voice, track.channel.id]
-                
-                # --- NEW FIX: Send 1s Silence to stabilize connection ---
-                # This prevents "Not connected to voice" errors during the wait
-                # We need to create a tiny silence source. 
-                # (You might need to import AudioSource if you haven't)
-                # Or just play/pause quickly if no silence source is handy.
-                # Actually, simply waiting a bit usually works, but if it fails,
-                # we just ensure we are still connected before play()
-                
-            except Exception as e:
-                self.log.error(f"Connection error: {e}")
-                if not self.queue.is_empty:
-                    await asyncio.sleep(1)
-                    asyncio.create_task(self._play(self.queue.pop()))
-                return
+                if self.client[0].is_connected():
+                    if track.channel.id != self.client[1]:
+                        await self.client[0].move_to(track.channel)
+                        self.client[1] = track.channel.id
+                    voice = self.client[0]
+                else:
+                    self.client = None
+            except:
+                self.client = None
 
-        # Ensure voice is connected BEFORE waiting for pipe
-        if not voice.is_connected():
-            self.log.warning("Voice not connected, reconnecting...")
-            await voice.disconnect()
-            voice = await track.channel.connect(timeout=60.0, reconnect=True, self_deaf=True)
+        if voice is None:
+            if self.bot and hasattr(self.bot, 'voice_clients'):
+                for vc in self.bot.voice_clients:
+                    if vc.guild.id == self.guild.id:
+                        voice = vc
+                        self.client = [voice, track.channel.id]
+                        if vc.channel.id != track.channel.id:
+                            await vc.move_to(track.channel)
+                        break
+            
+            if voice is None:
+                try:
+                    voice = await track.channel.connect(timeout=60.0, reconnect=True, self_deaf=True)
+                    self.client = [voice, track.channel.id]
+                except Exception as e:
+                    self.log.error(f"Connection error: {e}")
+                    if not self.queue.is_empty:
+                        await asyncio.sleep(1)
+                        asyncio.create_task(self._play(self.queue.pop()))
+                    return
 
         # --- 2. Create Synchronized Audio Source ---
         started_playing = False
@@ -83,25 +81,29 @@ class Player:
             if track.source == 'spotify_spoof':
                 self.log.debug("Starting Spotify Sync...")
                 
+                # A. Trigger Spotify Playback
+                # We start the trigger in the background so it runs while we wait for the pipe
                 if track.on_start:
                     asyncio.create_task(asyncio.to_thread(track.on_start))
                 
+                # B. Open the Pipe (BLOCKING WAIT)
+                # This line will pause execution until Librespot actually connects
+                # We use a timeout so the bot doesn't freeze forever if Spotify fails
                 try:
                     self.log.debug("Waiting for audio stream...")
+                    # This open() call BLOCKS until data flows
                     pipe_file = await asyncio.wait_for(
                         asyncio.to_thread(open, track.audio_url, 'rb'), 
                         timeout=10.0
                     )
                 except asyncio.TimeoutError:
-                    self.log.error("Spotify timed out")
+                    self.log.error("Spotify timed out (Librespot didn't send audio)")
                     raise Exception("Spotify Timeout")
 
-                # FINAL CHECK: Are we still connected?
-                if not voice.is_connected():
-                     self.log.error("Voice disconnected while waiting for pipe. Aborting.")
-                     # Try to recover by reconnecting? Or just fail safely.
-                     raise Exception("Voice disconnected during wait")
+                self.log.debug("Stream received! Piping to FFmpeg...")
 
+                # C. Create Source using the OPEN FILE
+                # pipe=True tells discord.py to read from our file object, not open it again
                 audio_source = discord.FFmpegPCMAudio(
                     pipe_file, 
                     pipe=True,
