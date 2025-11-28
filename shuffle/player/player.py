@@ -38,223 +38,134 @@ class Player:
     async def _play(self, track: Track) -> None:
         self.log.info(f'Playing {track.title} [{track.web_url}]')
 
+        # --- Voice Client Connection Logic ---
         voice = None
-
-        # Check if existing voice client is in the correct channel
+        
+        # Check existing connection
         if self.client is not None:
             try:
-                # Check if the client is still valid and connected
                 if self.client[0].is_connected():
                     if track.channel.id != self.client[1]:
-                        self.log.debug(f'Moving from old channel {self.client[1]} to request channel {track.channel.id}')
+                        self.log.debug(f'Moving to new channel {track.channel.id}')
                         await self.client[0].move_to(track.channel)
-                        voice = self.client[0]
                         self.client[1] = track.channel.id
-                    else:
-                        voice = self.client[0]
-                        self.log.debug("Using existing voice client")
+                    voice = self.client[0]
                 else:
-                    # Client exists but not connected, clean it up
-                    self.log.debug("Client exists but not connected, cleaning up")
                     self.client = None
-            except Exception as e:
-                self.log.error(f"Error checking existing client: {e}")
-                # Clean up invalid client
-                try:
-                    if self.client and self.client[0]:
-                        await self.client[0].disconnect(force=True)
-                except:
-                    pass
+            except:
                 self.client = None
-        
-        # Need a new voice client
+
+        # Connect if needed
         if voice is None:
-            # First check if bot is already in a voice channel in this guild
+            # Check bot's existing voice connections first
             if self.bot and hasattr(self.bot, 'voice_clients'):
                 for vc in self.bot.voice_clients:
                     if vc.guild.id == self.guild.id:
-                        self.log.debug("Found existing voice client in guild")
-                        try:
-                            if vc.channel.id != track.channel.id:
-                                await vc.move_to(track.channel)
-                            voice = vc
-                            self.client = [voice, track.channel.id]
-                            break
-                        except Exception as e:
-                            self.log.error(f"Error reusing voice client: {e}")
-                            try:
-                                await vc.disconnect(force=True)
-                            except:
-                                pass
-            
-            # If still no voice client, create new one
-            if voice is None:
-                max_retries = 3
-                for attempt in range(max_retries):
-                    try:
-                        self.log.debug(f"Attempting to connect to voice channel (attempt {attempt + 1}/{max_retries})")
-                        
-                        # Add timeout and reconnect parameters
-                        voice = await track.channel.connect(timeout=60.0, reconnect=True)
+                        voice = vc
                         self.client = [voice, track.channel.id]
-                        self.log.debug("Successfully connected to voice channel")
+                        if vc.channel.id != track.channel.id:
+                            await vc.move_to(track.channel)
                         break
-                        
-                    except discord.ClientException as e:
-                        if "Already connected" in str(e):
-                            self.log.warning("Already connected to voice channel, attempting to find it")
-                            # Try to find the existing connection
-                            for vc in self.bot.voice_clients:
-                                if vc.guild.id == self.guild.id:
-                                    voice = vc
-                                    self.client = [voice, vc.channel.id]
-                                    if vc.channel.id != track.channel.id:
-                                        await vc.move_to(track.channel)
-                                        self.client[1] = track.channel.id
-                                    break
-                            if voice:
-                                break
-                        else:
-                            raise
-                            
-                    except IndexError as e:
-                        self.log.error(f"IndexError connecting to voice (attempt {attempt + 1}): {e}")
-                        if attempt < max_retries - 1:
-                            await asyncio.sleep(2)  # Wait longer between retries
-                        else:
-                            self.log.error("Failed to connect after all retries - Discord voice servers may be having issues")
-                            
-                    except Exception as e:
-                        self.log.error(f"Unexpected error connecting to voice: {type(e).__name__}: {e}")
-                        import traceback
-                        self.log.error(traceback.format_exc())
-                        
-                        if attempt < max_retries - 1:
-                            await asyncio.sleep(1)
-
-        if voice is None:
-            self.log.error("Failed to establish voice connection")
-            # Clean up
-            self.queue.current = None
-            self.paused_track = None
-            self.state = 'idle'
             
-            # Try next in queue if available
-            if not self.queue.is_empty:
-                self.log.info("Trying next track in queue...")
-                await asyncio.sleep(3)  # Give Discord more time
-                asyncio.create_task(self._play(self.queue.pop()))
-            return
+            # Still no voice? Connect.
+            if voice is None:
+                try:
+                    voice = await track.channel.connect(timeout=60.0, reconnect=True)
+                    self.client = [voice, track.channel.id]
+                except Exception as e:
+                    self.log.error(f"Connection error: {e}")
+                    # Handle queue cleanup if connection fails
+                    if not self.queue.is_empty:
+                        await asyncio.sleep(1)
+                        asyncio.create_task(self._play(self.queue.pop()))
+                    return
 
-        # Ensure voice client is ready
-        await asyncio.sleep(0.5)  # Small delay to ensure connection is stable
-        
-        # 1. Trigger the Spotify Playback (if this is a spoofed track)
+        # Ensure voice is stable
+        await asyncio.sleep(0.5)
+
+        # --- Audio Source Logic ---
+
+        # 1. Trigger Spotify Playback (if needed)
         if track.on_start:
             self.log.debug("Triggering external playback...")
-            # Run in executor to avoid blocking the bot loop while contacting Spotify API
             await asyncio.get_event_loop().run_in_executor(None, track.on_start)
-            # Small buffer to let librespot fill the pipe
-            await asyncio.sleep(0.5) 
+            await asyncio.sleep(0.5) # Give pipe a moment to fill
 
-        # 2. Configure FFmpeg for the Pipe
-        # Librespot pipe output is: s16le, 44100Hz, 2 channels
-        if track.source == 'spotify_spoof':
-            FFMPEG_OPTIONS = {
-                # These options go BEFORE the input (-i) to tell FFmpeg how to read raw data
-                'before_options': '-f s16le -ar 44100 -ac 2', 
-                'options': '-vn'
-            }
-        else:
-            # Standard YouTube options
-            FFMPEG_OPTIONS = {
-                'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-                'options': '-vn'
-            }
-
-        # Track if we successfully started playing
+        # 2. Create the Audio Source
         started_playing = False
-        
         try:
-            self.log.debug(f"Creating Audio Source from {track.audio_url}")
+            audio_source = None
             
-            # Use FFmpegOpusAudio for higher quality (384kbps) "Uncapped"
-            audio_source = await discord.FFmpegOpusAudio.from_probe(
-                track.audio_url,
-                bitrate=384, 
-                **FFMPEG_OPTIONS
-            )
-            
-            # Create an error callback
+            if track.source == 'spotify_spoof':
+                self.log.debug("Creating Pipe Source (Raw PCM)...")
+                # Specific options for Librespot Raw Output
+                pipe_options = {
+                    'before_options': '-f s16le -ar 44100 -ac 2',
+                    'options': '-vn'
+                }
+                # USE CONSTRUCTOR (Allows forcing bitrate=384)
+                audio_source = discord.FFmpegOpusAudio(
+                    track.audio_url,
+                    bitrate=384, 
+                    **pipe_options
+                )
+            else:
+                self.log.debug("Creating YouTube Source...")
+                yt_options = {
+                    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+                    'options': '-vn'
+                }
+                # USE PROBE (Safer for URLs, removed manual bitrate to fix crash)
+                audio_source = await discord.FFmpegOpusAudio.from_probe(
+                    track.audio_url,
+                    **yt_options
+                )
+
+            # Define callback
             def after_playing(error):
-                if error:
-                    self.log.error(f'Playback error: {error}')
-                else:
-                    self.log.debug('Playback ended normally')
-            
+                if error: self.log.error(f'Playback error: {error}')
+                else: self.log.debug('Playback ended')
+
+            # Play
             voice.play(audio_source, after=after_playing)
             self.state = 'playing'
             started_playing = True
             self.log.debug("Playback started successfully")
-            
+
         except Exception as e:
             self.log.error(f'Error creating audio source: {str(e)}')
             import traceback
             self.log.error(traceback.format_exc())
 
-        # If we couldn't start playing at all, skip to next track
+        # --- Queue Handling ---
         if not started_playing:
+            self.log.warning("Could not start playback, skipping...")
             self.queue.current = None
-            self.paused_track = None
-            
-            # Don't disconnect - might be useful for next track
-            if not self.queue.is_empty and self.state != 'stopped':
-                self.log.debug('Skipping to next track...')
-                await asyncio.sleep(1)
-                asyncio.create_task(self._play(self.queue.pop()))
-                return
-            else:
-                self.log.debug('No more tracks, disconnecting')
-                self.state = 'idle'
-                if voice:
-                    try:
-                        await voice.disconnect()
-                    except:
-                        pass
-                self.client = None
-                return
+            if not self.queue.is_empty:
+                await self._play(self.queue.pop())
+            return
 
-        # Wait for the song to finish playing
+        # Wait loop
         while voice.is_connected() and (voice.is_playing() or voice.is_paused()):
             await asyncio.sleep(0.5)
-            
-        self.log.debug(f'Done playing {track.title}')
 
-        # Check why we stopped
+        # Cleanup / Next Song
         if not voice.is_connected():
-            self.log.debug('Voice disconnected during playback')
             self.state = 'idle'
             self.client = None
             return
-            
+
         if self.state == 'stopped' or self.state == 'paused':
-            self.log.debug(f'Playback {self.state}, not continuing queue')
             return
 
-        # Continue with queue if available
-        if not self.queue.is_empty and self.state == 'playing':
-            self.log.debug(f'Playing next song from queue ({len(self.queue.queue)} remaining)...')
+        if not self.queue.is_empty:
             await self._play(self.queue.pop())
         else:
-            self.log.info('Queue empty, disconnecting')
-            self.queue.current = None
-            self.paused_track = None
+            self.log.info('Queue empty')
             self.state = 'idle'
-            try:
-                await voice.disconnect()
-            except:
-                pass
-            self.client = None
+            self.queue.current = None
+            # Optional: Disconnect after timeout
+            # await voice.disconnect()
     
     async def enqueue(self, query: str, channel: Any) -> Track:
         # 1. Detect if the user provided a Spotify Link
