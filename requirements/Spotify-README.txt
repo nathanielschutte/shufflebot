@@ -1,3 +1,6 @@
+Usage:
+    -p [spotify link to song] # NOTE: replace - with correct bot prefix based on your .env settings
+
 To setup spoofed Spotify music player, follow these steps:
 
 1. Ensure discord.py is fully up to date. Also remember basics like running inside a virtual environment if that is where dependencies are installed.
@@ -51,7 +54,7 @@ To setup spoofed Spotify music player, follow these steps:
 NOTE: Needs to be running in background for bot to work (recommended to setup as systemd service, SEE librespot.service.txt)
     /home/[your_username]/.cargo/bin/librespot -n "ShuffleBot" -b 320 --backend pipe --device /tmp/spotify_pipe -c /home/[your_username]/.cache/librespot
 
-10. Start the bot:
+10. The bot is now ready to run with direct Spotify playback:
     python bot.py
 
 
