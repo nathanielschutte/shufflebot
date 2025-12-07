@@ -1,5 +1,5 @@
 Usage:
-    -p [spotify link to song] # NOTE: replace - with correct bot prefix based on your .env settings
+    -p [spotify URL to song] # NOTE: replace - with correct bot prefix based on your .env settings
 
 To setup spoofed Spotify music player, follow these steps:
 
