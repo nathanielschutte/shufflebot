@@ -1,0 +1,40 @@
+# librespot systemd service file for running Spotify client in background
+
+# To create service file, run:
+    # sudo nano /etc/systemd/system/librespot.service
+
+[Unit]
+Description=Librespot Spotify Client
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+# Restarts the app automatically if it crashes
+Restart=always
+RestartSec=10
+
+# The user running the bot (important for permissions)
+User=koopj
+Group=koopj
+
+# Ensure the audio pipe exists before starting
+ExecStartPre=/bin/sh -c 'if [ ! -p /tmp/spotify_pipe ]; then mkfifo /tmp/spotify_pipe; fi'
+# Set permissions so both librespot and the bot can read/write to it
+ExecStartPre=/bin/chmod 666 /tmp/spotify_pipe
+
+# The main start command
+ExecStart=/home/koopj/.cargo/bin/librespot -n "ShuffleBot" -b 320 --backend pipe --device /tmp/spotify_pipe -c /home/koopj/.cache/librespot
+
+[Install]
+WantedBy=multi-user.target\
+
+
+
+# Reload systemd to see the new file
+# sudo systemctl daemon-reload
+
+# Enable it to start on boot
+# sudo systemctl enable librespot
+
+# Start it right now
+# sudo systemctl start librespot
