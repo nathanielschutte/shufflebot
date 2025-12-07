@@ -19,7 +19,7 @@ class SpotifyStream(Stream):
         self.device_id = None
 
         # User Auth is REQUIRED to control playback
-        # You must set SPOTIPY_REDIRECT_URI in your .env (e.g., http://localhost:8888/callback)
+        # must set SPOTIPY_REDIRECT_URI in .env
         self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
             scope="user-modify-playback-state user-read-playback-state",
             open_browser=False
@@ -30,6 +30,10 @@ class SpotifyStream(Stream):
 
     def _setup(self) -> None:
         try:
+            # Reset state
+            self.device_id = None
+            self.ready = False
+            
             # Refresh devices
             devices = self.sp.devices()
             for d in devices['devices']:
@@ -44,6 +48,44 @@ class SpotifyStream(Stream):
         except Exception as e:
             self.logger.error(f"Spotify Setup Error: {e}")
 
+    async def restart_service(self) -> bool:
+        """Restart the librespot systemd service and re-setup the stream."""
+        self.logger.info("Restarting librespot service...")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                'sudo', 'systemctl', 'restart', 'librespot',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            except asyncio.TimeoutError:
+                proc.kill()
+                self.logger.error("Timeout waiting for librespot restart")
+                return False
+            
+            if proc.returncode != 0:
+                self.logger.error(f"Failed to restart librespot: {stderr.decode()}")
+                return False
+            
+            self.logger.info("Librespot service restarted, waiting for it to initialize...")
+            await asyncio.sleep(5)
+            
+            # Re-run setup to get new device ID (this is quick, blocking is fine)
+            self._setup()
+            
+            if self.ready:
+                self.logger.info("Librespot successfully restarted and ready")
+                return True
+            else:
+                self.logger.error("Librespot restarted but device not found")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Error restarting librespot: {e}")
+            return False
+    
     def get_track(self, query: str) -> Optional[Track]:
         if not self.ready:
             self._setup()

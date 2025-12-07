@@ -15,6 +15,9 @@ from shuffle.player.models.Queue import Queue
 from shuffle.player.models.Guild import Guild
 from shuffle.player.models.Track import Track
 
+# Max retries for Spotify playback failures (stale session, etc.)
+SPOTIFY_MAX_RETRIES = 2
+
 class Player:
     def __init__(self, guild_id: int, config: dict, bot: Any) -> None:
         self.guild = Guild(guild_id)
@@ -35,7 +38,7 @@ class Player:
         self.log = shuffle_logger(f'player [{self.guild.id}]')
         self.log.info(f'Created player for {self.guild} with queue {self.queue}')
 
-    async def _play(self, track: Track) -> None:
+    async def _play(self, track: Track, retry_count: int = 0) -> None:
         self.log.info(f'Playing {track.title} [{track.web_url}]')
 
         # --- 1. Connect to Voice ---
@@ -75,6 +78,7 @@ class Player:
 
         # --- 2. Create Synchronized Audio Source ---
         started_playing = False
+        spotify_timeout = False
         try:
             audio_source = None
             
@@ -98,6 +102,7 @@ class Player:
                     )
                 except asyncio.TimeoutError:
                     self.log.error("Spotify timed out (Librespot didn't send audio)")
+                    spotify_timeout = True
                     raise Exception("Spotify Timeout")
 
                 self.log.debug("Stream received! Piping to FFmpeg...")
@@ -131,6 +136,29 @@ class Player:
             self.log.error(f'Error creating audio source: {str(e)}')
             import traceback
             self.log.error(traceback.format_exc())
+            
+            # --- Spotify Retry Logic ---
+            if spotify_timeout and track.source == 'spotify_spoof' and retry_count < SPOTIFY_MAX_RETRIES:
+                self.log.info(f"Attempting Spotify recovery (attempt {retry_count + 1}/{SPOTIFY_MAX_RETRIES})...")
+                
+                # Get the spotify stream and restart librespot
+                spotify_stream = self.streams.get('spotify')
+                if spotify_stream and await spotify_stream.restart_service():
+                    # Re-fetch the track to get a fresh on_start callback with new device_id
+                    self.log.info("Librespot restarted, re-fetching track...")
+                    new_track = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: spotify_stream.get_track(track.query)
+                    )
+                    
+                    if new_track:
+                        new_track.channel = track.channel
+                        self.log.info("Retrying playback with fresh track...")
+                        await self._play(new_track, retry_count + 1)
+                        return
+                    else:
+                        self.log.error("Failed to re-fetch track after restart")
+                else:
+                    self.log.error("Failed to restart librespot service")
 
         # --- 3. Queue Handling ---
         if not started_playing:
