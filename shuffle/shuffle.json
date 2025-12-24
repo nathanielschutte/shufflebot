@@ -26,6 +26,12 @@
         "desc": "resume paused playback",
         "usage": ""
     },
+    "autoplay": {
+        "argmin": 0,
+        "aliases": ["a"],
+        "desc": "toggle autoplay mode (queues similar songs)",
+        "usage": ""
+    },
     "skip": {
         "argmin": 0,
         "aliases": ["s"],

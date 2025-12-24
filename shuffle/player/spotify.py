@@ -131,6 +131,45 @@ class SpotifyStream(Stream):
         except Exception as e:
             self.logger.error(f"Error getting track: {e}")
             return None
+    def get_recommendation(self, seed_track_id: str) -> Optional[Track]:
+        """Get a recommended track based on a seed track ID."""
+        if not self.ready:
+            self._setup()
+            if not self.ready:
+                return None
 
+        try:
+            results = self.sp.recommendations(seed_tracks=[seed_track_id], limit=1)
+            
+            if not results or not results.get('tracks'):
+                self.logger.warning("No recommendations returned")
+                return None
+            
+            track_info = results['tracks'][0]
+            uri = track_info['uri']
+            title = f"{track_info['name']} - {track_info['artists'][0]['name']}"
+            
+            def start_playback():
+                self.logger.info(f"Triggering playback for {title} on {self.device_name}")
+                self.sp.start_playback(device_id=self.device_id, uris=[uri])
+
+            track = Track(
+                id=track_info['id'],
+                title=title,
+                query=f"autoplay:{seed_track_id}",
+                web_url=track_info['external_urls']['spotify'],
+                audio_url=self.pipe_path,
+                duration=track_info['duration_ms'] // 1000,
+                source='spotify_spoof',
+                on_start=start_playback,
+                from_autoplay=True
+            )
+            
+            self.logger.info(f"Got recommendation: {title}")
+            return track
+
+        except Exception as e:
+            self.logger.error(f"Error getting recommendation: {e}")
+            return None
     def is_ready(self) -> bool:
         return self.ready

@@ -219,6 +219,19 @@ class ShuffleBot(commands.Cog):
             self.log.error(f"Error resuming playback: {str(e)}")
             await ctx.channel.send(f"Error resuming playback: {str(e)}")
 
+    async def autoplay(self, ctx, player: Player, *args):
+        try:
+            voice_channel = self._get_voice_channel(ctx)
+            if voice_channel is None:
+                await ctx.channel.send("You need to join a voice channel first!")
+                return
+            
+            new_state, message = await player.toggle_autoplay(voice_channel)
+            await ctx.channel.send(message)
+        except Exception as e:
+            self.logger.error(f"Error toggling autoplay: {str(e)}")
+            await ctx.channel.send(f"Error toggling autoplay: {str(e)}")
+
     # SKip the current song
     # Optional: provide an index or song name to skip to
     async def skip(self, ctx, player, *args):

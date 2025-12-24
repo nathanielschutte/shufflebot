@@ -17,3 +17,4 @@ class Track:
     downloaded: bool = False
     # Trigger function to start playback (used for Spotify Spoof)
     on_start: Optional[Callable] = None
+    from_autoplay: bool = False

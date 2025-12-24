@@ -17,6 +17,7 @@ from shuffle.player.models.Track import Track
 
 # Max retries for Spotify playback failures (stale session, etc.)
 SPOTIFY_MAX_RETRIES = 2
+AUTOPLAY_MAX = 20
 
 class Player:
     def __init__(self, guild_id: int, config: dict, bot: Any) -> None:
@@ -34,6 +35,10 @@ class Player:
         self.client: Optional[List[Any]] = None
         # Track we were playing when paused - store it to enable resume
         self.paused_track: Optional[Track] = None 
+
+        # Autoplay state
+        self.autoplay: bool = False
+        self.autoplay_count: int = 0
 
         self.log = shuffle_logger(f'player [{self.guild.id}]')
         self.log.info(f'Created player for {self.guild} with queue {self.queue}')
@@ -294,6 +299,73 @@ class Player:
             self.log.debug("Nothing to resume")
             return False
 
+    async def toggle_autoplay(self, channel: Any) -> Tuple[bool, str]:
+        """
+        Toggle autoplay mode. Returns (new_state, message).
+        """
+        self.autoplay = not self.autoplay
+        
+        if self.autoplay:
+            self.autoplay_count = 0
+            
+            # Get the current playing track to seed recommendations
+            current = self.queue.current
+            if current and current.source == 'spotify_spoof':
+                # Immediately queue a recommendation
+                success = await self._queue_autoplay_track(current.id, channel)
+                if success:
+                    return (True, f"Autoplay enabled! Queued a similar song (0/{AUTOPLAY_MAX})")
+                else:
+                    return (True, "Autoplay enabled! Will queue similar songs when current track ends.")
+            else:
+                return (True, "Autoplay enabled! Will queue similar songs after a Spotify track plays.")
+        else:
+            # Remove any autoplay tracks from queue
+            removed = self._remove_autoplay_tracks()
+            self.autoplay_count = 0
+            if removed > 0:
+                return (False, f"Autoplay disabled. Removed {removed} queued song(s).")
+            else:
+                return (False, "Autoplay disabled.")
+
+    async def _queue_autoplay_track(self, seed_track_id: str, channel: Any) -> bool:
+        """Queue a recommended track based on seed. Returns True if successful."""
+        if self.autoplay_count >= AUTOPLAY_MAX:
+            self.log.info(f"Autoplay limit reached ({AUTOPLAY_MAX})")
+            self.autoplay = False
+            return False
+        
+        # Check if there's already an autoplay track in queue
+        for track in self.queue.queue:
+            if track.from_autoplay:
+                self.log.debug("Autoplay track already in queue, skipping")
+                return False
+        
+        spotify_stream = self.streams.get('spotify')
+        if not spotify_stream or not spotify_stream.is_ready():
+            self.log.error("Spotify stream not ready for autoplay")
+            return False
+        
+        track = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: spotify_stream.get_recommendation(seed_track_id)
+        )
+        
+        if track:
+            track.channel = channel
+            self.queue.enqueue(track)
+            self.log.info(f"Autoplay queued: {track.title} ({self.autoplay_count + 1}/{AUTOPLAY_MAX})")
+            return True
+        
+        return False
+
+    def _remove_autoplay_tracks(self) -> int:
+        """Remove all autoplay tracks from queue. Returns count removed."""
+        original_length = len(self.queue.queue)
+        self.queue.queue = [t for t in self.queue.queue if not t.from_autoplay]
+        removed = original_length - len(self.queue.queue)
+        if removed > 0:
+            self.log.info(f"Removed {removed} autoplay track(s) from queue")
+        return removed
 
     async def clear(self) -> None:
         if not self.queue.is_empty:
