@@ -1,5 +1,3 @@
-# Update to Player class in shuffle/player/player.py to add resume functionality
-
 import asyncio
 import os
 import discord
@@ -33,7 +31,13 @@ class Player:
 
         self.client: Optional[List[Any]] = None
         # Track we were playing when paused - store it to enable resume
-        self.paused_track: Optional[Track] = None 
+        self.paused_track: Optional[Track] = None
+
+        # Bot-side autoplay: when queue is empty, fetch similar tracks via Spotify API
+        self.autoplay_enabled: bool = False
+        # Track the last played track's Spotify ID for recommendations
+        self._last_track_id: Optional[str] = None
+        self._last_track_source: Optional[str] = None
 
         self.log = shuffle_logger(f'player [{self.guild.id}]')
         self.log.info(f'Created player for {self.guild} with queue {self.queue}')
@@ -86,16 +90,12 @@ class Player:
                 self.log.debug("Starting Spotify Sync...")
                 
                 # A. Trigger Spotify Playback
-                # We start the trigger in the background so it runs while we wait for the pipe
                 if track.on_start:
                     asyncio.create_task(asyncio.to_thread(track.on_start))
                 
                 # B. Open the Pipe (BLOCKING WAIT)
-                # This line will pause execution until Librespot actually connects
-                # We use a timeout so the bot doesn't freeze forever if Spotify fails
                 try:
                     self.log.debug("Waiting for audio stream...")
-                    # This open() call BLOCKS until data flows
                     pipe_file = await asyncio.wait_for(
                         asyncio.to_thread(open, track.audio_url, 'rb'), 
                         timeout=10.0
@@ -108,7 +108,6 @@ class Player:
                 self.log.debug("Stream received! Piping to FFmpeg...")
 
                 # C. Create Source using the OPEN FILE
-                # pipe=True tells discord.py to read from our file object, not open it again
                 audio_source = discord.FFmpegPCMAudio(
                     pipe_file, 
                     pipe=True,
@@ -131,6 +130,10 @@ class Player:
             self.state = 'playing'
             started_playing = True
             self.log.debug("Playback started successfully")
+
+            # Remember this track for autoplay recommendations
+            self._last_track_id = track.id
+            self._last_track_source = track.source
 
         except Exception as e:
             self.log.error(f'Error creating audio source: {str(e)}')
@@ -181,12 +184,49 @@ class Player:
 
         if not self.queue.is_empty:
             await self._play(self.queue.pop())
+        elif self.autoplay_enabled:
+            # --- Bot-side Autoplay ---
+            await self._autoplay_next(track)
         else:
             self.log.info('Queue empty')
             self.state = 'idle'
             self.queue.current = None
+
+    async def _autoplay_next(self, last_track: Track) -> None:
+        """Fetch a recommended track via Spotify API and play it."""
+        self.log.info(f'Autoplay: fetching recommendation based on {last_track.title}')
+        
+        spotify_stream = self.streams.get('spotify')
+        if not spotify_stream or not spotify_stream.is_ready():
+            self.log.warning("Autoplay: Spotify stream not ready, falling back to idle")
+            self.state = 'idle'
+            self.queue.current = None
+            return
+
+        try:
+            # Get a recommendation based on the last track
+            rec_track = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: spotify_stream.get_recommendation(last_track.id)
+            )
+            
+            if rec_track is None:
+                self.log.warning("Autoplay: No recommendation found")
+                self.state = 'idle'
+                self.queue.current = None
+                return
+
+            # Use the same voice channel as the last track
+            rec_track.channel = last_track.channel
+            self.log.info(f'Autoplay: playing {rec_track.title}')
+            
+            await self._play(rec_track)
+            
+        except Exception as e:
+            self.log.error(f'Autoplay error: {str(e)}')
+            self.state = 'idle'
+            self.queue.current = None
     
-    async def enqueue(self, query: str, channel: Any) -> Track:
+    async def enqueue(self, query: str, channel: Any) -> Optional[Track]:
         # 1. Detect if the user provided a Spotify Link
         if 'spotify.com' in query or 'spotify:' in query:
             selected_stream_driver = 'spotify'
@@ -206,7 +246,6 @@ class Player:
             return None
 
         # 3. Get the track info
-        # run spotify.py code if driver is 'spotify'
         track = await asyncio.get_event_loop().run_in_executor(None, lambda: stream.get_track(query))
         
         if track is None:
@@ -236,10 +275,9 @@ class Player:
         if self.client[0].is_connected() and self.client[0].is_playing():
             # Remember the current track so we can resume it later
             self.paused_track = self.queue.current
-            self.client[0].pause()  # Use pause instead of stop to keep the voice client connected
+            self.client[0].pause()
             self.state = 'paused'
             self.log.info(f'Paused playback of {self.paused_track.title if self.paused_track else "unknown"}')
-            # Don't disconnect - keep the connection for resume functionality
         else:
             self.log.debug("Called stop but no audio was playing")
 
@@ -258,14 +296,13 @@ class Player:
         # If we have a paused track and the client is still connected
         if self.paused_track and self.client is not None and self.client[0].is_connected():
             self.log.info(f"Resuming playback of {self.paused_track.title}")
-            self.client[0].resume()  # Resume the paused playback
+            self.client[0].resume()
             self.state = 'playing'
             return True
             
         # If we have a paused track but need to reconnect
         elif self.paused_track:
             self.log.info(f"Restarting playback of {self.paused_track.title}")
-            # If channel wasn't provided but we have the track's channel
             target_channel = channel or self.paused_track.channel
             
             if target_channel:
@@ -294,6 +331,20 @@ class Player:
             self.log.debug("Nothing to resume")
             return False
 
+    async def toggle_autoplay(self, channel: Any = None) -> Tuple[bool, str]:
+        """Toggle autoplay on/off. Returns (new_state, message)."""
+        self.autoplay_enabled = not self.autoplay_enabled
+        state_str = "enabled" if self.autoplay_enabled else "disabled"
+        self.log.info(f"Autoplay {state_str}")
+        
+        # If autoplay was just enabled and we're idle with no queue, 
+        # try to start playing a recommendation based on last track
+        if self.autoplay_enabled and self.state == 'idle' and self._last_track_id:
+            spotify_stream = self.streams.get('spotify')
+            if spotify_stream and spotify_stream.is_ready():
+                return (True, f"Autoplay {state_str}! Fetching a recommendation...")
+        
+        return (self.autoplay_enabled, f"Autoplay {state_str}.")
 
     async def clear(self) -> None:
         if not self.queue.is_empty:

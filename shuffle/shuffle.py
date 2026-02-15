@@ -89,8 +89,6 @@ class ShuffleBot(commands.Cog):
                         await msg.channel.send(f'You are not authorized to run command `{command}`')
                         return
 
-                # self.logger.debug(f'user {msg.author.display_name} called on: \'{command}\'')
-
                 method_name = command
 
                 if 'function' in self.commands[command]:
@@ -122,7 +120,6 @@ class ShuffleBot(commands.Cog):
                             error_msg = f'Error executing command {command}: {str(e)}'
                             self.logger.error(error_msg)
                             self.logger.error(traceback.format_exc())
-                            # await msg.channel.send(f"Error: {str(e)}")
                     else:
                         self.logger.error(f'function not coroutine for command: {command}')
                 else:
@@ -145,8 +142,6 @@ class ShuffleBot(commands.Cog):
     async def restart(self, ctx: discord.Message, _):
         await ctx.channel.send('Rebooting the bot...')
         raise ShuffleRebootException
-
-    # Update the play, stop, and resume methods in shuffle.py
 
     # Play command that handles both new songs and resuming
     async def play(self, ctx: discord.Message, player: Player, *args):
@@ -181,6 +176,12 @@ class ShuffleBot(commands.Cog):
         message = await ctx.channel.send(f'Searching for `{query}` ...')
         try:
             track = await player.enqueue(query, voice_channel)
+
+            # FIX: Null guard — enqueue can return None if stream driver not found/ready
+            if track is None:
+                await message.edit(content=f"Couldn't find or play `{query}`. The stream driver may not be ready.")
+                return
+
             position = player.queue.length
 
             if position > 0:
@@ -216,11 +217,12 @@ class ShuffleBot(commands.Cog):
             else:
                 await ctx.channel.send("Nothing to resume. Use `-play <song>` to play a song.")
         except Exception as e:
-            self.log.error(f"Error resuming playback: {str(e)}")
-            await ctx.channel.send(f"Error resuming playback: {str(e)}")
+            # FIX: was self.log, should be self.logger
+            self.logger.error(f"Error resuming playback: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            await ctx.channel.send(f"Error resuming playback, contact admin")
 
-    # SKip the current song
-    # Optional: provide an index or song name to skip to
+    # Skip the current song
     async def skip(self, ctx, player, *args):
         try:
             result = await player.skip()
@@ -231,6 +233,20 @@ class ShuffleBot(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error skipping track: {str(e)}")
             await ctx.channel.send(f"Error skipping track: {str(e)}")
+
+    # Toggle autoplay
+    async def autoplay(self, ctx, player, *args):
+        try:
+            voice_channel = self._get_voice_channel(ctx)
+            if voice_channel is None:
+                await ctx.channel.send("You need to join a voice channel first!")
+                return
+            
+            new_state, message = await player.toggle_autoplay(voice_channel)
+            await ctx.channel.send(message)
+        except Exception as e:
+            self.logger.error(f"Error toggling autoplay: {str(e)}")
+            await ctx.channel.send(f"Error toggling autoplay: {str(e)}")
 
     # View the queue
     async def list(self, ctx, player: Player, *args):
@@ -251,6 +267,11 @@ class ShuffleBot(commands.Cog):
             embed = discord.Embed()
             embed.add_field(name='Current', value=current_track, inline=False)
             embed.add_field(name='Queue', value=desc_str, inline=False)
+
+            # Show autoplay status
+            autoplay_status = "On" if player.autoplay_enabled else "Off"
+            embed.set_footer(text=f"Autoplay: {autoplay_status}")
+
             await ctx.channel.send(embed=embed)
         except Exception as e:
             self.logger.error(f"Error listing queue: {str(e)}")
@@ -337,4 +358,3 @@ class ShuffleHelp(commands.HelpCommand):
 
     async def send_command_help(self, command):
         return await super().send_command_help(command)
-

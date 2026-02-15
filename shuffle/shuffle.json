@@ -33,6 +33,13 @@
         "usage": "",
         "disabled": 0
     },
+    "autoplay": {
+        "argmin": 0,
+        "aliases": ["ap"],
+        "desc": "toggle autoplay (plays similar songs when queue is empty)",
+        "usage": "",
+        "permission": "any"
+    },
     "list": {
         "argmin": 0,
         "aliases": ["soundlist"],
